@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+cd "$ROOT_DIR"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "[pre-commit] python3 not found; aborting." >&2
+  exit 1
+fi
+
+if ! command -v pytest >/dev/null 2>&1; then
+  echo "[pre-commit] pytest not found. Install test deps first." >&2
+  echo "[pre-commit] Suggested: ./tools/setup_governance_test_env.sh" >&2
+  exit 1
+fi
+
+echo "[pre-commit] Running governance sentinel..."
+python3 tools/governance_sentinel.py
+
+echo "[pre-commit] Running governance pytest subset..."
+PYTHONPATH=. pytest -q tests/test_governance_input.py tests/test_snapshot_schema_v1.py
+
+echo "[pre-commit] Governance checks passed."
