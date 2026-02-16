@@ -61,6 +61,12 @@ class CodeExecution(Tool):
 
         await self.agent.handle_intervention()  # wait for intervention and handle it, if paused
 
+        # === GOVERNANCE_MODE BEGIN ===
+        # Runtime backstop: in governed mode, refuse execution unless gate provenance is present.
+        from python.helpers.governance_gate import assert_governance_provenance
+        assert_governance_provenance(self.agent, self.args)
+        # === GOVERNANCE_MODE END ===
+
         runtime = self.args.get("runtime", "").lower().strip()
         session = int(self.args.get("session", 0))
         self.allow_running = bool(self.args.get("allow_running", False))
