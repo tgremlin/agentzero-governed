@@ -12,6 +12,7 @@ import { store as stepDetailStore } from "/components/modals/process-step-detail
 import { store as preferencesStore } from "/components/sidebar/bottom/preferences/preferences-store.js";
 import { formatDuration } from "./time-utils.js";
 import { Scroller } from "./scroller.js";
+import { callJsonApi } from "./api.js";
 
 // Delay before collapsing previous steps when a new step is added
 const STEP_COLLAPSE_DELAY = {
@@ -1588,6 +1589,144 @@ function drawKvpsIncremental(container, kvps, latex) {
     return null;
   }
   return table;
+}
+
+
+function formatApprovalArgs(args) {
+  if (!args || typeof args !== "object") return "{}";
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch (_err) {
+    return "{}";
+  }
+}
+
+function createApprovalCardElement(approval, contextId) {
+  const approvalId = approval.approval_id;
+  const toolName = approval.tool_name || "unknown";
+  const risk = approval.risk || "unknown";
+  const status = (approval.status || "pending").toLowerCase();
+  const argsText = formatApprovalArgs(approval.tool_args || {});
+
+  const container = document.createElement("div");
+  container.id = `governance-approval-${approvalId}`;
+  container.classList.add("message-container", "ai-container", "governance-approval-container");
+
+  const messageDiv = document.createElement("div");
+  messageDiv.classList.add("message", "msg-info", "governance-approval-card");
+  messageDiv.dataset.approvalId = approvalId;
+  messageDiv.dataset.approvalStatus = status;
+
+  messageDiv.innerHTML = `
+    <div class="governance-approval-header">
+      <strong>Approval Required</strong>
+      <span class="governance-approval-status">${status.toUpperCase()}</span>
+    </div>
+    <div><strong>Tool:</strong> ${toolName}</div>
+    <div><strong>Risk:</strong> ${risk}</div>
+    <div><strong>Args / Command / Plan:</strong></div>
+    <pre class="message-body">${convertHTML(argsText)}</pre>
+    <label><strong>Rationale (optional):</strong></label>
+    <textarea class="governance-rationale" rows="3" placeholder="Reason for decision..."></textarea>
+    <div class="step-action-buttons governance-approval-actions"></div>
+    <div class="governance-approval-feedback"></div>
+  `;
+
+  const actions = messageDiv.querySelector(".governance-approval-actions");
+  const feedback = messageDiv.querySelector(".governance-approval-feedback");
+  const rationaleEl = messageDiv.querySelector(".governance-rationale");
+
+  const setResolvedState = (resolvedStatus) => {
+    messageDiv.dataset.approvalStatus = resolvedStatus;
+    const statusEl = messageDiv.querySelector(".governance-approval-status");
+    if (statusEl) statusEl.textContent = resolvedStatus.toUpperCase();
+    if (rationaleEl) rationaleEl.disabled = true;
+    actions.querySelectorAll("button").forEach((btn) => {
+      btn.disabled = true;
+    });
+    messageDiv.classList.add("governance-approval-resolved");
+  };
+
+  const submitDecision = async (decision) => {
+    const rationale = (rationaleEl?.value || "").trim();
+    feedback.textContent = "Submitting...";
+    try {
+      const payload = {
+        context_id: contextId || "",
+        approval_id: approvalId,
+        decision,
+        rationale,
+      };
+      const result = await callJsonApi("/governance_approval", payload);
+      const resolved = String(result.status || decision).toLowerCase();
+      setResolvedState(resolved);
+      feedback.textContent = `Decision recorded: ${resolved}.`;
+    } catch (error) {
+      feedback.textContent = `Failed to submit decision: ${error?.message || error}`;
+    }
+  };
+
+  const approveBtn = document.createElement("button");
+  approveBtn.type = "button";
+  approveBtn.classList.add("button");
+  approveBtn.textContent = "Approve";
+  approveBtn.onclick = () => submitDecision("approved");
+
+  const rejectBtn = document.createElement("button");
+  rejectBtn.type = "button";
+  rejectBtn.classList.add("button");
+  rejectBtn.textContent = "Reject";
+  rejectBtn.onclick = () => submitDecision("denied");
+
+  actions.appendChild(approveBtn);
+  actions.appendChild(rejectBtn);
+
+  if (status !== "pending") {
+    setResolvedState(status);
+    feedback.textContent = `Already ${status}.`;
+  }
+
+  container.appendChild(messageDiv);
+  return container;
+}
+
+export function renderApprovalCards(approvals = [], contextId = "") {
+  const chatHistoryEl = getChatHistoryEl();
+  if (!chatHistoryEl) return;
+
+  const byId = new Map();
+  for (const approval of approvals || []) {
+    if (!approval || !approval.approval_id) continue;
+    byId.set(String(approval.approval_id), approval);
+  }
+
+  // remove cards no longer present in snapshot
+  chatHistoryEl
+    .querySelectorAll(".governance-approval-container")
+    .forEach((node) => {
+      const approvalId = node.id.replace("governance-approval-", "");
+      if (!byId.has(approvalId)) {
+        node.remove();
+      }
+    });
+
+  // create or update cards
+  for (const [approvalId, approval] of byId.entries()) {
+    const existing = document.getElementById(`governance-approval-${approvalId}`);
+    if (!existing) {
+      const card = createApprovalCardElement(approval, contextId);
+      appendToMessageGroup(card, "left", true);
+      continue;
+    }
+
+    const currentStatus = (existing.querySelector(".governance-approval-card")?.dataset?.approvalStatus || "pending").toLowerCase();
+    const nextStatus = String(approval.status || "pending").toLowerCase();
+    if (currentStatus !== nextStatus) {
+      existing.remove();
+      const card = createApprovalCardElement(approval, contextId);
+      appendToMessageGroup(card, "left", true);
+    }
+  }
 }
 
 function convertToTitleCase(str) {

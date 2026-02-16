@@ -347,6 +347,9 @@ export async function applySnapshot(snapshot, options = {}) {
   // set ui model vars from backend
   inputStore.paused = snapshot.paused;
 
+  // Render governance approval cards from snapshot data.
+  msgs.renderApprovalCards(snapshot.approvals || [], context || snapshot.context || "");
+
   // Optional: treat snapshot application as proof of connectivity (poll path)
   if (touchConnectionStatus) {
     setConnectionStatus(true);
