@@ -29,3 +29,6 @@ no text allowed before or after json
 ~~~
 
 {{ include "agent.system.main.communication_additions.md" }}
+
+
+{{ include "agent.system.sheldon.md" }}
