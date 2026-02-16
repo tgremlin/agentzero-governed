@@ -1,5 +1,5 @@
 import os
-from typing import Literal, TypedDict, TYPE_CHECKING, cast
+from typing import Any, Literal, TypedDict, TYPE_CHECKING, cast
 
 from python.helpers import files, dirty_json, persist_chat, file_tree
 from python.helpers.print_style import PrintStyle
@@ -28,6 +28,25 @@ class FileStructureInjectionSettings(TypedDict):
 class SubAgentSettings(TypedDict):
     enabled: bool
 
+
+GovernanceMode = Literal["autonomy", "standard", "strict", "custom"]
+
+
+class GovernancePolicyConfig(TypedDict, total=False):
+    require_approval_for: list[str]
+    default_policy: Literal["allow", "deny"]
+    policy_file: str
+    tool_overrides: dict[str, Any]
+
+
+class GovernanceSettings(TypedDict, total=False):
+    enabled: bool
+    mode: GovernanceMode
+    require_approval_for: list[str]
+    default_policy: Literal["allow", "deny"]
+    policy_file: str
+
+
 class BasicProjectData(TypedDict):
     title: str
     description: str
@@ -38,6 +57,9 @@ class BasicProjectData(TypedDict):
         "own", "global"
     ]  # in the future we can add cutom and point to another existing folder
     file_structure: FileStructureInjectionSettings
+    governance_enabled: bool
+    governance_mode: GovernanceMode
+    policy_config: GovernancePolicyConfig
 
 class GitStatusData(TypedDict, total=False):
     is_git_repo: bool
@@ -56,6 +78,7 @@ class EditProjectData(BasicProjectData):
     secrets: str
     subagents: dict[str, SubAgentSettings]
     git_status: GitStatusData
+    governance: GovernanceSettings
 
 
 
@@ -151,7 +174,77 @@ def _default_file_structure_settings():
     )
 
 
+def _default_policy_config() -> GovernancePolicyConfig:
+    return GovernancePolicyConfig(
+        require_approval_for=["high", "critical"],
+        default_policy="allow",
+        policy_file="governance/config/policy.json",
+        tool_overrides={},
+    )
+
+
+def _default_governance_settings() -> GovernanceSettings:
+    policy = _default_policy_config()
+    return GovernanceSettings(
+        enabled=False,
+        mode="standard",
+        require_approval_for=list(policy.get("require_approval_for", [])),
+        default_policy=cast(Literal["allow", "deny"], policy.get("default_policy", "allow")),
+        policy_file=policy.get("policy_file", "governance/config/policy.json"),
+    )
+
+
+def _normalize_policy_config(value: Any) -> GovernancePolicyConfig:
+    default = _default_policy_config()
+    if not isinstance(value, dict):
+        value = {}
+
+    req = value.get("require_approval_for", default["require_approval_for"])
+    if not isinstance(req, list):
+        req = default["require_approval_for"]
+    req = [str(x) for x in req if str(x)]
+
+    default_policy = str(value.get("default_policy", default["default_policy"]))
+    if default_policy not in {"allow", "deny"}:
+        default_policy = cast(str, default["default_policy"])
+
+    policy_file = str(value.get("policy_file", default["policy_file"]))
+    tool_overrides = value.get("tool_overrides", default["tool_overrides"])
+    if not isinstance(tool_overrides, dict):
+        tool_overrides = {}
+
+    return GovernancePolicyConfig(
+        require_approval_for=req,
+        default_policy=cast(Literal["allow", "deny"], default_policy),
+        policy_file=policy_file,
+        tool_overrides=tool_overrides,
+    )
+
+
+def _extract_governance(data: dict[str, Any]) -> tuple[bool, GovernanceMode, GovernancePolicyConfig]:
+    governance = data.get("governance", {})
+    if not isinstance(governance, dict):
+        governance = {}
+
+    enabled = bool(data.get("governance_enabled", governance.get("enabled", False)))
+    mode = cast(GovernanceMode, str(data.get("governance_mode", governance.get("mode", "standard"))))
+    if mode not in {"autonomy", "standard", "strict", "custom"}:
+        mode = "standard"
+
+    policy_source = data.get("policy_config")
+    if not isinstance(policy_source, dict):
+        policy_source = {
+            "require_approval_for": governance.get("require_approval_for", ["high", "critical"]),
+            "default_policy": governance.get("default_policy", "allow"),
+            "policy_file": governance.get("policy_file", "governance/config/policy.json"),
+        }
+
+    policy = _normalize_policy_config(policy_source)
+    return enabled, mode, policy
+
+
 def _normalizeBasicData(data: BasicProjectData) -> BasicProjectData:
+    enabled, mode, policy = _extract_governance(cast(dict[str, Any], data))
     return {
         "title": data.get("title", ""),
         "description": data.get("description", ""),
@@ -163,10 +256,18 @@ def _normalizeBasicData(data: BasicProjectData) -> BasicProjectData:
             "file_structure",
             _default_file_structure_settings(),
         ),
+        "governance_enabled": enabled,
+        "governance_mode": mode,
+        "policy_config": policy,
     }
 
 
 def _normalizeEditData(data: EditProjectData) -> EditProjectData:
+    enabled, mode, policy = _extract_governance(cast(dict[str, Any], data))
+    governance = data.get("governance", _default_governance_settings())
+    if not isinstance(governance, dict):
+        governance = _default_governance_settings()
+
     normalized: EditProjectData = {
         "name": data.get("name", ""),
         "title": data.get("title", ""),
@@ -185,6 +286,16 @@ def _normalizeEditData(data: EditProjectData) -> EditProjectData:
             _default_file_structure_settings(),
         ),
         "subagents": data.get("subagents", {}),
+        "governance_enabled": enabled,
+        "governance_mode": mode,
+        "policy_config": policy,
+        "governance": {
+            "enabled": bool(governance.get("enabled", enabled)),
+            "mode": cast(GovernanceMode, governance.get("mode", mode)),
+            "require_approval_for": list(policy.get("require_approval_for", ["high", "critical"])),
+            "default_policy": cast(Literal["allow", "deny"], policy.get("default_policy", "allow")),
+            "policy_file": str(policy.get("policy_file", "governance/config/policy.json")),
+        },
     }
     return normalized
 
