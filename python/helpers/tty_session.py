@@ -11,6 +11,31 @@ sys.stdin.reconfigure(errors="replace")  # type: ignore
 sys.stdout.reconfigure(errors="replace")  # type: ignore
 
 
+# === GOVERNANCE_MODE BEGIN ===
+def assert_tty_session_provenance(env: dict[str, str] | None = None):
+    """Dangerous primitive guard: block PTY shell spawns without governance provenance in governed mode."""
+    try:
+        from agent import AgentContext
+        from python.helpers.governance_gate import is_governance_enabled
+        from python.helpers.errors import RepairableException
+    except Exception:
+        return
+
+    context = AgentContext.current()
+    if not context or not getattr(context, "agent0", None):
+        return
+
+    if not is_governance_enabled(context.agent0):
+        return
+
+    env_data = env or {}
+    token = str(env_data.get("__governance_gate_evaluated", "") or env_data.get("A0_GOVERNANCE_GATE_TOKEN", "")).strip()
+    if not token:
+        raise RepairableException(
+            "Governance provenance assertion failed: TTYSession spawn blocked without gate token."
+        )
+
+
 # ──────────────────────────── PUBLIC CLASS ────────────────────────────
 
 
@@ -37,6 +62,8 @@ class TTYSession:
 
     # ── user-facing coroutines ────────────────────────────────────────
     async def start(self):
+        assert_tty_session_provenance(self.env)
+        # === GOVERNANCE_MODE END ===
         if _IS_WIN:
             self._proc = await _spawn_winpty(
                 self.cmd, self.cwd, self.env, self.echo

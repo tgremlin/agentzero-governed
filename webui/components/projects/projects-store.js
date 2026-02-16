@@ -410,6 +410,14 @@ const model = {
       color: "",
       git_url: "",
       git_token: "",
+      // Governance defaults
+      governance: {
+        enabled: false,
+        mode: "standard",
+        require_approval_for: ["medium", "high", "critical"],
+        default_policy: "allow",
+        policy_file: "governance/config/policy.json"
+      }
     };
   },
 

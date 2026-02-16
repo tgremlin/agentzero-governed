@@ -26,6 +26,8 @@ EXPECTED_SNAPSHOT_KEYS = {
     "notifications",
     "notifications_guid",
     "notifications_version",
+    "approvals",
+    "governance_events",
 }
 
 
@@ -55,6 +57,8 @@ async def test_poll_snapshot_matches_contract_schema_key_set_null_context():
     assert payload["log_progress"] == 0
     assert payload["log_progress_active"] is False
     assert payload["paused"] is False
+    assert isinstance(payload["approvals"], list)
+    assert isinstance(payload["governance_events"], list)
 
 
 @pytest.mark.asyncio
@@ -78,6 +82,8 @@ async def test_snapshot_builder_produces_contract_schema_key_set_and_defaults():
     assert payload["log_progress"] == 0
     assert payload["log_progress_active"] is False
     assert payload["paused"] is False
+    assert isinstance(payload["approvals"], list)
+    assert isinstance(payload["governance_events"], list)
     assert isinstance(payload["contexts"], list)
     assert isinstance(payload["tasks"], list)
     assert isinstance(payload["notifications"], list)
@@ -103,6 +109,8 @@ def test_snapshot_schema_rejects_unexpected_top_level_keys():
         "notifications": [],
         "notifications_guid": "guid",
         "notifications_version": 0,
+        "approvals": [],
+        "governance_events": [],
         "api_key": "should-not-be-here",
     }
 

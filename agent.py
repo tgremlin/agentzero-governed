@@ -855,6 +855,8 @@ class Agent:
         if tool_request is not None:
             raw_tool_name = tool_request.get("tool_name", tool_request.get("tool",""))  # Get the raw tool name
             tool_args = tool_request.get("tool_args", tool_request.get("args", {}))
+            if not isinstance(tool_args, dict):
+                tool_args = {}
 
             tool_name = raw_tool_name  # Initialize tool_name with raw_tool_name
             tool_method = None  # Initialize tool_method
@@ -898,6 +900,29 @@ class Agent:
                 try:
                     await self.handle_intervention()
 
+                    # === GOVERNANCE_MODE BEGIN ===
+                    # Governance gate chokepoint (covers local + MCP tools)
+                    from python.helpers.governance_gate import evaluate_tool_gate
+
+                    gate = evaluate_tool_gate(self, tool_name, tool_args or {})
+                    decision = str(gate.get("decision", "allow"))
+                    if decision == "require_approval":
+                        # Pause-safe path: gate created approval + paused context, do not execute tool.
+                        return None
+                    if decision == "deny":
+                        denied_msg = (
+                            "Governance denied tool execution. "
+                            f"tool={tool_name} risk={gate.get('risk', 'unknown')}"
+                        )
+                        self.hist_add_warning(denied_msg)
+                        PrintStyle(font_color="red", padding=True).print(denied_msg)
+                        self.context.log.log(type="warning", content=f"{self.agent_name}: {denied_msg}")
+                        return None
+
+                    tool_args["__governance_gate_evaluated"] = gate.get("token", "")
+                    tool_args["__governance_tool_call_hash"] = gate.get("tool_call_hash", "")
+                    # === GOVERNANCE_MODE END ===
+
                     # Call tool hooks for compatibility
                     await tool.before_execution(**tool_args)
                     await self.handle_intervention()
@@ -925,6 +950,25 @@ class Agent:
                 finally:
                     self.loop_data.current_tool = None
             else:
+                # === GOVERNANCE_MODE BEGIN ===
+                # Unknown tool behavior is governance-mode dependent.
+                from python.helpers.governance_gate import evaluate_tool_gate
+
+                gate = evaluate_tool_gate(self, tool_name, tool_args or {})
+                decision = str(gate.get("decision", "allow"))
+                if decision == "require_approval":
+                    return None
+                if decision == "deny":
+                    denied_msg = (
+                        "Governance denied unknown tool execution. "
+                        f"tool={raw_tool_name} risk={gate.get('risk', 'unknown')}"
+                    )
+                    self.hist_add_warning(denied_msg)
+                    PrintStyle(font_color="red", padding=True).print(denied_msg)
+                    self.context.log.log(type="warning", content=f"{self.agent_name}: {denied_msg}")
+                    return None
+                # === GOVERNANCE_MODE END ===
+
                 error_detail = (
                     f"Tool '{raw_tool_name}' not found or could not be initialized."
                 )

@@ -141,6 +141,7 @@ def _serialize_context(context: AgentContext):
             if context.last_message
             else datetime.fromtimestamp(0).isoformat()
         ),
+        "paused": bool(context.paused),
         "agents": agents,
         "streaming_agent": (
             context.streaming_agent.number if context.streaming_agent else 0
@@ -199,7 +200,7 @@ def _deserialize_context(data):
             )
         ),
         log=log,
-        paused=False,
+        paused=bool(data.get("paused", False)),
         data=data.get("data", {}),
         output_data=data.get("output_data", {}),
         # agent0=agent0,

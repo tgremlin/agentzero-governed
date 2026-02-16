@@ -30,6 +30,8 @@ class SnapshotV1(TypedDict):
     notifications: list[dict[str, Any]]
     notifications_guid: str
     notifications_version: int
+    approvals: list[dict[str, Any]]
+    governance_events: list[dict[str, Any]]
 
 @dataclass(frozen=True)
 class StateRequestV1:
@@ -283,6 +285,23 @@ async def build_snapshot_from_request(*, request: StateRequestV1) -> SnapshotV1:
     ctxs.sort(key=lambda x: x["created_at"], reverse=True)
     tasks.sort(key=lambda x: x["created_at"], reverse=True)
 
+    approvals: list[dict[str, Any]] = []
+    governance_events: list[dict[str, Any]] = []
+    if active_context:
+        try:
+            from python.helpers import projects
+            from python.helpers.governance_gate import (
+                load_governance_approvals,
+                load_governance_events,
+            )
+
+            project_name = projects.get_context_project_name(active_context)
+            approvals = load_governance_approvals(project_name=project_name, limit=200)
+            governance_events = load_governance_events(project_name=project_name, limit=200)
+        except Exception:
+            approvals = []
+            governance_events = []
+
     snapshot: SnapshotV1 = {
         "deselect_chat": bool(ctxid) and active_context is None,
         "context": active_context.id if active_context else "",
@@ -297,6 +316,8 @@ async def build_snapshot_from_request(*, request: StateRequestV1) -> SnapshotV1:
         "notifications": notifications,
         "notifications_guid": notification_manager.guid,
         "notifications_version": len(notification_manager.updates),
+        "approvals": approvals,
+        "governance_events": governance_events,
     }
 
     validate_snapshot_schema_v1(snapshot)
