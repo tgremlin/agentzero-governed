@@ -1,0 +1,19 @@
+FROM agent0ai/agent-zero:latest
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/a0 \
+    WEB_UI_HOST=0.0.0.0 \
+    WEB_UI_PORT=5000 \
+    TOKENIZERS_PARALLELISM=false
+
+WORKDIR /a0
+
+COPY . /a0
+
+RUN /opt/venv-a0/bin/pip install --no-cache-dir -r /a0/requirements.client.txt
+
+EXPOSE 5000
+
+CMD ["/opt/venv-a0/bin/python", "run_ui.py"]
