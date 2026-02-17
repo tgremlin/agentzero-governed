@@ -352,6 +352,28 @@ const model = {
         ...this.selectedProject,
         memory: this.selectedProject._ownMemory ? "own" : "global",
       };
+
+      if (data.governance && typeof data.governance === "object") {
+        data.governance_enabled = Boolean(data.governance.enabled);
+        data.governance_mode = String(data.governance.mode || "standard");
+
+        if (!data.policy_config || typeof data.policy_config !== "object") {
+          data.policy_config = {};
+        }
+
+        data.policy_config.require_approval_for = Array.isArray(data.governance.require_approval_for)
+          ? data.governance.require_approval_for
+          : ["medium", "high", "critical"];
+        data.policy_config.default_policy = String(data.governance.default_policy || "allow");
+        data.policy_config.policy_file = String(data.governance.policy_file || "governance/config/policy.json");
+        data.policy_config.allow_readonly_terminal_without_approval = Boolean(
+          data.policy_config.allow_readonly_terminal_without_approval
+        );
+
+        if (!data.policy_config.tool_overrides || typeof data.policy_config.tool_overrides !== "object") {
+          data.policy_config.tool_overrides = {};
+        }
+      }
       // remove internal fields
       for (const kvp of Object.entries(data))
         if (kvp[0].startsWith("_")) delete data[kvp[0]];
@@ -417,6 +439,13 @@ const model = {
         require_approval_for: ["medium", "high", "critical"],
         default_policy: "allow",
         policy_file: "governance/config/policy.json"
+      },
+      policy_config: {
+        require_approval_for: ["medium", "high", "critical"],
+        default_policy: "allow",
+        policy_file: "governance/config/policy.json",
+        allow_readonly_terminal_without_approval: false,
+        tool_overrides: {}
       }
     };
   },

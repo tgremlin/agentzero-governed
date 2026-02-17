@@ -1,4 +1,3 @@
-
 <html>
 
 <head>
@@ -10,7 +9,6 @@
 
 <body>
 <style>
-    /* Toggle switch styles */
     .projects-toggle-row {
         display: flex;
         justify-content: space-between;
@@ -55,14 +53,13 @@
     }
 
     .projects-toggle input:checked + .projects-toggle-slider {
-        background-color: var(--color-success);
+        background-color: #2196f3;
     }
 
     .projects-toggle input:checked + .projects-toggle-slider:before {
         transform: translateX(24px);
     }
 
-    /* Checkbox group styles */
     .projects-checkbox-group {
         display: flex;
         flex-wrap: wrap;
@@ -83,7 +80,6 @@
         cursor: pointer;
     }
 
-    /* Info box styles */
     .projects-info-box {
         background: var(--color-bg-secondary);
         border: 1px solid var(--color-border);
@@ -107,9 +103,93 @@
     .projects-info-box-content div {
         margin-bottom: var(--spacing-xs);
     }
+
+    .projects-custom-policy {
+        border: 1px solid var(--color-border);
+        border-radius: 0.5em;
+        padding: var(--spacing-sm);
+        background: var(--color-panel);
+    }
+
+    .projects-custom-policy summary {
+        cursor: pointer;
+        font-weight: 600;
+        list-style: none;
+    }
+
+    .projects-custom-policy summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .projects-custom-policy-grid {
+        display: grid;
+        grid-template-columns: minmax(180px, 1fr) auto;
+        gap: var(--spacing-sm) var(--spacing-md);
+        margin-top: var(--spacing-md);
+        align-items: center;
+    }
+
+    .projects-tool-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2em;
+    }
+
+    .projects-tool-name {
+        font-weight: 600;
+    }
+
+    .projects-tool-risk {
+        font-size: 0.85em;
+        color: var(--color-text-secondary);
+    }
 </style>
 
-    <div x-data>
+    <div x-data="{
+        toolCatalog: [
+            { key: 'code_execution_tool', risk: 'Critical/High' },
+            { key: 'browser_agent', risk: 'Critical' },
+            { key: 'input', risk: 'High' },
+            { key: 'skills_tool', risk: 'High' },
+            { key: 'a2a_chat', risk: 'Medium' },
+            { key: 'memory_save', risk: 'Medium' },
+            { key: 'memory_delete', risk: 'Medium' },
+            { key: 'search_engine', risk: 'Low' },
+            { key: 'document_query', risk: 'Low' },
+            { key: 'vision_load', risk: 'Low' }
+        ],
+        ensurePolicyConfig() {
+            const p = $store.projects.selectedProject;
+            if (!p) return;
+            if (!p.policy_config || typeof p.policy_config !== 'object') {
+                p.policy_config = {
+                    require_approval_for: ['medium', 'high', 'critical'],
+                    default_policy: 'allow',
+                    policy_file: 'governance/config/policy.json',
+                    allow_readonly_terminal_without_approval: false,
+                    tool_overrides: {}
+                };
+            }
+            if (!p.policy_config.tool_overrides || typeof p.policy_config.tool_overrides !== 'object') {
+                p.policy_config.tool_overrides = {};
+            }
+            if (typeof p.policy_config.allow_readonly_terminal_without_approval !== 'boolean') {
+                p.policy_config.allow_readonly_terminal_without_approval = false;
+            }
+        },
+        toolAllowed(toolKey) {
+            this.ensurePolicyConfig();
+            const decision = $store.projects.selectedProject.policy_config.tool_overrides?.[toolKey]?.decision || '';
+            return decision !== 'deny';
+        },
+        setToolAllowed(toolKey, allowed) {
+            this.ensurePolicyConfig();
+            if (!$store.projects.selectedProject.policy_config.tool_overrides[toolKey]) {
+                $store.projects.selectedProject.policy_config.tool_overrides[toolKey] = {};
+            }
+            $store.projects.selectedProject.policy_config.tool_overrides[toolKey].decision = allowed ? 'allow' : 'deny';
+        }
+    }" x-init="ensurePolicyConfig()">
         <template x-if="$store.projects && $store.projects.selectedProject">
             <div>
 
@@ -117,8 +197,9 @@
                     <div class="projects-toggle-row">
                         <label class="projects-form-label">Enable Governance</label>
                         <label class="projects-toggle">
-                            <input type="checkbox" 
-                                x-model="$store.projects.selectedProject.governance.enabled">
+                            <input type="checkbox"
+                                x-model="$store.projects.selectedProject.governance.enabled"
+                                @change="ensurePolicyConfig()">
                             <span class="projects-toggle-slider"></span>
                         </label>
                     </div>
@@ -128,66 +209,114 @@
                 <template x-if="$store.projects.selectedProject.governance.enabled">
                     <div>
                         <div class="projects-form-group">
+                            <div class="projects-toggle-row">
+                                <label class="projects-form-label">Auto-Allow Read-Only Terminal Commands</label>
+                                <label class="projects-toggle">
+                                    <input type="checkbox"
+                                        x-model="$store.projects.selectedProject.policy_config.allow_readonly_terminal_without_approval"
+                                        @change="ensurePolicyConfig()">
+                                    <span class="projects-toggle-slider"></span>
+                                </label>
+                            </div>
+                            <span class="projects-form-description">
+                                Allows safe read-only terminal commands (for example: ls, cat, rg, find) without approval.
+                                Mutating commands still require approval based on policy.
+                            </span>
+                        </div>
+
+                        <div class="projects-form-group">
                             <label class="projects-form-label">Governance Mode</label>
-                            <span class="projects-form-description">Choose how strict the governance should be for this project.</span>
-                            <select class="projects-form-input" 
-                                x-model="$store.projects.selectedProject.governance.mode">
+                            <span class="projects-form-description">Choose how strict governance should be for this project.</span>
+                            <select class="projects-form-input"
+                                x-model="$store.projects.selectedProject.governance.mode"
+                                @change="ensurePolicyConfig()">
                                 <option value="autonomy">Autonomy - No governance, full freedom</option>
                                 <option value="standard">Standard - Medium and Critical need approval</option>
                                 <option value="strict">Strict - All non-low tools need approval</option>
+                                <option value="custom">Custom - Decide tool permissions one by one</option>
                             </select>
                         </div>
 
-                        <div class="projects-form-group">
-                            <label class="projects-form-label">Require Approval For</label>
-                            <span class="projects-form-description">Select risk levels that require approval before execution.</span>
-                            <div class="projects-checkbox-group">
-                                <label class="projects-checkbox">
-                                    <input type="checkbox" value="low" 
-                                        x-model="$store.projects.selectedProject.governance.require_approval_for">
-                                    <span>Low</span>
-                                </label>
-                                <label class="projects-checkbox">
-                                    <input type="checkbox" value="medium" 
-                                        x-model="$store.projects.selectedProject.governance.require_approval_for">
-                                    <span>Medium</span>
-                                </label>
-                                <label class="projects-checkbox">
-                                    <input type="checkbox" value="high" 
-                                        x-model="$store.projects.selectedProject.governance.require_approval_for">
-                                    <span>High</span>
-                                </label>
-                                <label class="projects-checkbox">
-                                    <input type="checkbox" value="critical" 
-                                        x-model="$store.projects.selectedProject.governance.require_approval_for">
-                                    <span>Critical</span>
-                                </label>
+                        <template x-if="$store.projects.selectedProject.governance.mode !== 'custom'">
+                            <div>
+                                <div class="projects-form-group">
+                                    <label class="projects-form-label">Require Approval For</label>
+                                    <span class="projects-form-description">Select risk levels that require approval before execution.</span>
+                                    <div class="projects-checkbox-group">
+                                        <label class="projects-checkbox">
+                                            <input type="checkbox" value="low"
+                                                x-model="$store.projects.selectedProject.governance.require_approval_for">
+                                            <span>Low</span>
+                                        </label>
+                                        <label class="projects-checkbox">
+                                            <input type="checkbox" value="medium"
+                                                x-model="$store.projects.selectedProject.governance.require_approval_for">
+                                            <span>Medium</span>
+                                        </label>
+                                        <label class="projects-checkbox">
+                                            <input type="checkbox" value="high"
+                                                x-model="$store.projects.selectedProject.governance.require_approval_for">
+                                            <span>High</span>
+                                        </label>
+                                        <label class="projects-checkbox">
+                                            <input type="checkbox" value="critical"
+                                                x-model="$store.projects.selectedProject.governance.require_approval_for">
+                                            <span>Critical</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="projects-form-group">
+                                    <label class="projects-form-label">Default Policy</label>
+                                    <span class="projects-form-description">Default action when no specific rule matches.</span>
+                                    <select class="projects-form-input"
+                                        x-model="$store.projects.selectedProject.governance.default_policy">
+                                        <option value="allow">Allow - Allow by default, deny exceptions</option>
+                                        <option value="deny">Deny - Deny by default, allow exceptions</option>
+                                    </select>
+                                </div>
+
+                                <div class="projects-form-group">
+                                    <label class="projects-form-label">Policy File</label>
+                                    <span class="projects-form-description">Path to detailed policy configuration file.</span>
+                                    <input class="projects-form-input" type="text"
+                                        x-model="$store.projects.selectedProject.governance.policy_file"
+                                        placeholder="governance/config/policy.json">
+                                </div>
                             </div>
-                        </div>
+                        </template>
 
-                        <div class="projects-form-group">
-                            <label class="projects-form-label">Default Policy</label>
-                            <span class="projects-form-description">Default action when no specific rule matches.</span>
-                            <select class="projects-form-input" 
-                                x-model="$store.projects.selectedProject.governance.default_policy">
-                                <option value="allow">Allow - Allow by default, deny exceptions</option>
-                                <option value="deny">Deny - Deny by default, allow exceptions</option>
-                            </select>
-                        </div>
-
-                        <div class="projects-form-group">
-                            <label class="projects-form-label">Policy File</label>
-                            <span class="projects-form-description">Path to detailed policy configuration file.</span>
-                            <input class="projects-form-input" type="text" 
-                                x-model="$store.projects.selectedProject.governance.policy_file"
-                                placeholder="governance/config/policy.json">
-                        </div>
+                        <template x-if="$store.projects.selectedProject.governance.mode === 'custom'">
+                            <div class="projects-form-group">
+                                <label class="projects-form-label">Custom Tool Permissions</label>
+                                <span class="projects-form-description">Allow or block each tool explicitly. In custom mode, these overrides are enforced at runtime.</span>
+                                <details class="projects-custom-policy" open>
+                                    <summary>Tool Overrides</summary>
+                                    <div class="projects-custom-policy-grid">
+                                        <template x-for="tool in toolCatalog" :key="tool.key">
+                                            <div style="display: contents;">
+                                                <div class="projects-tool-meta">
+                                                    <span class="projects-tool-name" x-text="tool.key"></span>
+                                                    <span class="projects-tool-risk" x-text="`Risk: ${tool.risk}`"></span>
+                                                </div>
+                                                <label class="projects-toggle" :title="toolAllowed(tool.key) ? 'Allowed' : 'Blocked'">
+                                                    <input
+                                                        type="checkbox"
+                                                        :checked="toolAllowed(tool.key)"
+                                                        @change="setToolAllowed(tool.key, $event.target.checked)">
+                                                    <span class="projects-toggle-slider"></span>
+                                                </label>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </details>
+                            </div>
+                        </template>
                     </div>
                 </template>
 
-                <!-- Risk Level Reference -->
                 <div class="projects-info-box" style="margin-top: var(--spacing-lg);">
-                    <div class="projects-info-box-title"> 
+                    <div class="projects-info-box-title">
                         <span class="icon material-symbols-outlined">info</span>
                         Risk Level Reference
                     </div>

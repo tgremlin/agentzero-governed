@@ -1601,12 +1601,57 @@ function formatApprovalArgs(args) {
   }
 }
 
+function formatApprovalArgValue(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch (_err) {
+    return String(value);
+  }
+}
+
+function createApprovalArgsTable(toolArgs) {
+  const table = document.createElement("table");
+  table.className = "governance-approval-args-table";
+
+  const body = document.createElement("tbody");
+  const args = toolArgs && typeof toolArgs === "object" ? toolArgs : {};
+  const keys = Object.keys(args);
+
+  if (keys.length === 0) {
+    const row = document.createElement("tr");
+    row.className = "governance-approval-args-row";
+    row.innerHTML = `<th scope="row">args</th><td class="governance-arg-value"><em>None</em></td>`;
+    body.appendChild(row);
+  } else {
+    for (const key of keys) {
+      const row = document.createElement("tr");
+      row.className = "governance-approval-args-row";
+      const valueText = formatApprovalArgValue(args[key]);
+      const isCode = key === "code" || key === "command" || key === "plan";
+      row.innerHTML = `
+        <th scope="row">${convertHTML(String(key))}</th>
+        <td class="governance-arg-value ${isCode ? "governance-arg-value-code" : ""}">${convertHTML(valueText)}</td>
+      `;
+      body.appendChild(row);
+    }
+  }
+
+  table.appendChild(body);
+  return table;
+}
+
 function createApprovalCardElement(approval, contextId) {
   const approvalId = approval.approval_id;
   const toolName = approval.tool_name || "unknown";
   const risk = approval.risk || "unknown";
   const status = (approval.status || "pending").toLowerCase();
-  const argsText = formatApprovalArgs(approval.tool_args || {});
+  const safeToolName = convertHTML(String(toolName));
+  const safeRisk = convertHTML(String(risk));
+  const safeStatus = convertHTML(status.toUpperCase());
+  const safeApprovalId = convertHTML(String(approvalId));
 
   const container = document.createElement("div");
   container.id = `governance-approval-${approvalId}`;
@@ -1619,15 +1664,18 @@ function createApprovalCardElement(approval, contextId) {
 
   messageDiv.innerHTML = `
     <div class="governance-approval-header">
-      <strong>Approval Required</strong>
-      <span class="governance-approval-status">${status.toUpperCase()}</span>
+      <div class="governance-approval-title">Governance Approval Required</div>
+      <span class="governance-approval-status governance-approval-status-${status}">${safeStatus}</span>
     </div>
-    <div><strong>Tool:</strong> ${toolName}</div>
-    <div><strong>Risk:</strong> ${risk}</div>
-    <div><strong>Args / Command / Plan:</strong></div>
-    <pre class="message-body">${convertHTML(argsText)}</pre>
-    <label><strong>Rationale (optional):</strong></label>
-    <textarea class="governance-rationale" rows="3" placeholder="Reason for decision..."></textarea>
+    <div class="governance-approval-meta">
+      <div><span class="governance-meta-label">Approval ID</span><span class="governance-meta-value governance-approval-id">${safeApprovalId}</span></div>
+      <div><span class="governance-meta-label">Tool</span><span class="governance-meta-value">${safeToolName}</span></div>
+      <div><span class="governance-meta-label">Risk</span><span class="governance-meta-value governance-risk-${String(risk).toLowerCase()}">${safeRisk}</span></div>
+    </div>
+    <label class="governance-approval-section-title">Args / Command / Plan</label>
+    <div class="governance-approval-args"></div>
+    <label class="governance-approval-section-title">Rationale (optional)</label>
+    <textarea class="governance-rationale" rows="3" placeholder="Add context for approve/reject decision..."></textarea>
     <div class="step-action-buttons governance-approval-actions"></div>
     <div class="governance-approval-feedback"></div>
   `;
@@ -1635,11 +1683,23 @@ function createApprovalCardElement(approval, contextId) {
   const actions = messageDiv.querySelector(".governance-approval-actions");
   const feedback = messageDiv.querySelector(".governance-approval-feedback");
   const rationaleEl = messageDiv.querySelector(".governance-rationale");
+  const argsEl = messageDiv.querySelector(".governance-approval-args");
+  if (argsEl) {
+    argsEl.appendChild(createApprovalArgsTable(approval.tool_args || {}));
+  }
 
   const setResolvedState = (resolvedStatus) => {
     messageDiv.dataset.approvalStatus = resolvedStatus;
     const statusEl = messageDiv.querySelector(".governance-approval-status");
-    if (statusEl) statusEl.textContent = resolvedStatus.toUpperCase();
+    if (statusEl) {
+      statusEl.textContent = resolvedStatus.toUpperCase();
+      statusEl.classList.remove(
+        "governance-approval-status-pending",
+        "governance-approval-status-approved",
+        "governance-approval-status-denied",
+      );
+      statusEl.classList.add(`governance-approval-status-${resolvedStatus}`);
+    }
     if (rationaleEl) rationaleEl.disabled = true;
     actions.querySelectorAll("button").forEach((btn) => {
       btn.disabled = true;

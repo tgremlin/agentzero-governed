@@ -3,18 +3,24 @@ import select
 import subprocess
 import time
 import sys
+import os
 from typing import Optional, Tuple
 from python.helpers import tty_session, runtime
 from python.helpers.shell_ssh import clean_string
 
 class LocalInteractiveSession:
-    def __init__(self, cwd: str|None = None):
+    def __init__(self, cwd: str|None = None, env: dict[str, str] | None = None):
         self.session: tty_session.TTYSession|None = None
         self.full_output = ''
         self.cwd = cwd
+        self.env = env or os.environ.copy()
 
     async def connect(self):
-        self.session = tty_session.TTYSession(runtime.get_terminal_executable(), cwd=self.cwd)
+        self.session = tty_session.TTYSession(
+            runtime.get_terminal_executable(),
+            cwd=self.cwd,
+            env=self.env,
+        )
         await self.session.start()
         await self.session.read_full_until_idle(idle_timeout=1, total_timeout=1)
 

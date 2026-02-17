@@ -36,6 +36,7 @@ class GovernancePolicyConfig(TypedDict, total=False):
     require_approval_for: list[str]
     default_policy: Literal["allow", "deny"]
     policy_file: str
+    allow_readonly_terminal_without_approval: bool
     tool_overrides: dict[str, Any]
 
 
@@ -179,6 +180,7 @@ def _default_policy_config() -> GovernancePolicyConfig:
         require_approval_for=["high", "critical"],
         default_policy="allow",
         policy_file="governance/config/policy.json",
+        allow_readonly_terminal_without_approval=False,
         tool_overrides={},
     )
 
@@ -209,6 +211,12 @@ def _normalize_policy_config(value: Any) -> GovernancePolicyConfig:
         default_policy = cast(str, default["default_policy"])
 
     policy_file = str(value.get("policy_file", default["policy_file"]))
+    allow_readonly_terminal_without_approval = bool(
+        value.get(
+            "allow_readonly_terminal_without_approval",
+            default["allow_readonly_terminal_without_approval"],
+        )
+    )
     tool_overrides = value.get("tool_overrides", default["tool_overrides"])
     if not isinstance(tool_overrides, dict):
         tool_overrides = {}
@@ -217,6 +225,7 @@ def _normalize_policy_config(value: Any) -> GovernancePolicyConfig:
         require_approval_for=req,
         default_policy=cast(Literal["allow", "deny"], default_policy),
         policy_file=policy_file,
+        allow_readonly_terminal_without_approval=allow_readonly_terminal_without_approval,
         tool_overrides=tool_overrides,
     )
 
@@ -264,9 +273,12 @@ def _normalizeBasicData(data: BasicProjectData) -> BasicProjectData:
 
 def _normalizeEditData(data: EditProjectData) -> EditProjectData:
     enabled, mode, policy = _extract_governance(cast(dict[str, Any], data))
-    governance = data.get("governance", _default_governance_settings())
-    if not isinstance(governance, dict):
-        governance = _default_governance_settings()
+    governance_raw = data.get("governance")
+    governance = governance_raw if isinstance(governance_raw, dict) else {}
+    governance_enabled = bool(governance.get("enabled", enabled))
+    governance_mode = cast(GovernanceMode, str(governance.get("mode", mode)))
+    if governance_mode not in {"autonomy", "standard", "strict", "custom"}:
+        governance_mode = mode
 
     normalized: EditProjectData = {
         "name": data.get("name", ""),
@@ -290,8 +302,8 @@ def _normalizeEditData(data: EditProjectData) -> EditProjectData:
         "governance_mode": mode,
         "policy_config": policy,
         "governance": {
-            "enabled": bool(governance.get("enabled", enabled)),
-            "mode": cast(GovernanceMode, governance.get("mode", mode)),
+            "enabled": governance_enabled,
+            "mode": governance_mode,
             "require_approval_for": list(policy.get("require_approval_for", ["high", "critical"])),
             "default_policy": cast(Literal["allow", "deny"], policy.get("default_policy", "allow")),
             "policy_file": str(policy.get("policy_file", "governance/config/policy.json")),

@@ -64,13 +64,14 @@ async def test_input_requires_approval_when_governed(monkeypatch):
     assert called["execute"] is False
 
 
-def _policy(enabled: bool, mode: str):
+def _policy(enabled: bool, mode: str, *, allow_readonly_terminal_without_approval: bool = False):
     return {
         "governance_enabled": enabled,
         "governance_mode": mode,
         "policy_config": {
             "require_approval_for": ["high", "critical"],
             "default_policy": "allow",
+            "allow_readonly_terminal_without_approval": allow_readonly_terminal_without_approval,
             "tool_overrides": {},
         },
     }
@@ -117,3 +118,77 @@ async def test_code_execution_provenance_assertion(monkeypatch):
 
     with pytest.raises(RepairableException, match="missing gate token"):
         await tool.execute()
+
+
+def test_custom_mode_tool_overrides_take_precedence(monkeypatch):
+    from python.helpers import projects
+
+    agent = _DummyAgent()
+    monkeypatch.setattr(projects, "get_context_project_name", lambda _ctx: "p1")
+
+    monkeypatch.setattr(
+        projects,
+        "load_basic_project_data",
+        lambda _name: {
+            "governance_enabled": True,
+            "governance_mode": "custom",
+            "policy_config": {
+                "require_approval_for": ["high", "critical"],
+                "default_policy": "allow",
+                "tool_overrides": {
+                    "browser_agent": {"decision": "deny"},
+                    "search_engine": {"decision": "allow"},
+                },
+            },
+        },
+    )
+
+    denied = evaluate_tool_gate(agent, "browser_agent", {})
+    assert denied["decision"] == "deny"
+
+    allowed = evaluate_tool_gate(agent, "search_engine", {})
+    assert allowed["decision"] == "allow"
+
+
+def test_terminal_read_only_auto_allowed_when_toggle_enabled(monkeypatch):
+    from python.helpers import projects
+
+    agent = _DummyAgent()
+    monkeypatch.setattr(projects, "get_context_project_name", lambda _ctx: "p1")
+    monkeypatch.setattr(
+        projects,
+        "load_basic_project_data",
+        lambda _name: _policy(True, "standard", allow_readonly_terminal_without_approval=True),
+    )
+
+    result = evaluate_tool_gate(
+        agent,
+        "code_execution_tool",
+        {"runtime": "terminal", "code": "ls -la /tmp && rg governance /opt/agentzero"},
+    )
+    assert result["decision"] == "allow"
+    assert result["readonly_terminal"] is True
+    assert result["risk"] == "low"
+    assert agent.context.paused is False
+
+
+def test_terminal_mutating_still_requires_approval_with_read_only_toggle(monkeypatch):
+    from python.helpers import projects
+
+    agent = _DummyAgent()
+    monkeypatch.setattr(projects, "get_context_project_name", lambda _ctx: "p1")
+    monkeypatch.setattr(
+        projects,
+        "load_basic_project_data",
+        lambda _name: _policy(True, "standard", allow_readonly_terminal_without_approval=True),
+    )
+
+    result = evaluate_tool_gate(
+        agent,
+        "code_execution_tool",
+        {"runtime": "terminal", "code": "ls -la /tmp && touch /tmp/governance_test_file"},
+    )
+    assert result["decision"] == "require_approval"
+    assert result["readonly_terminal"] is False
+    assert result["risk"] == "critical"
+    assert agent.context.paused is True
