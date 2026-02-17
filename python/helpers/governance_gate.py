@@ -4,6 +4,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -98,6 +99,7 @@ def _load_project_governance(agent: Any) -> dict[str, Any]:
             "require_approval_for": governance.get("require_approval_for", ["high", "critical"]),
             "default_policy": governance.get("default_policy", "allow"),
             "policy_file": governance.get("policy_file", "governance/config/policy.json"),
+            "allow_readonly_terminal_without_approval": False,
             "tool_overrides": {},
         }
 
@@ -118,15 +120,116 @@ def _load_project_governance(agent: Any) -> dict[str, Any]:
     default_policy = str(policy.get("default_policy", "allow")).lower().strip()
     if default_policy not in {"allow", "deny"}:
         default_policy = "allow"
+    allow_readonly_terminal_without_approval = bool(
+        policy.get("allow_readonly_terminal_without_approval", False)
+    )
 
     return {
         "project_name": project_name,
         "governance_enabled": enabled,
         "mode": mode,
         "require_approval_for": require_approval_for,
+        "allow_readonly_terminal_without_approval": allow_readonly_terminal_without_approval,
         "tool_overrides": tool_overrides,
         "default_policy": default_policy,
     }
+
+
+_READ_ONLY_TERMINAL_COMMANDS = {
+    "awk",
+    "cat",
+    "cut",
+    "date",
+    "df",
+    "du",
+    "echo",
+    "env",
+    "file",
+    "find",
+    "grep",
+    "head",
+    "id",
+    "ls",
+    "printenv",
+    "printf",
+    "pwd",
+    "rg",
+    "sed",
+    "sort",
+    "stat",
+    "tail",
+    "uname",
+    "uniq",
+    "wc",
+    "which",
+    "whoami",
+}
+
+_GIT_READ_ONLY_SUBCOMMANDS = {
+    "branch",
+    "diff",
+    "log",
+    "ls-files",
+    "remote",
+    "rev-parse",
+    "show",
+    "status",
+}
+
+_SHELL_SPLIT_RE = re.compile(r"(?:&&|\|\||;|\n)+")
+
+
+def _is_read_only_terminal_command(code: Any) -> bool:
+    if not isinstance(code, str):
+        return False
+    command = code.strip()
+    if not command:
+        return False
+
+    # Block shell features that can cause side-effects or hide intent.
+    if any(token in command for token in [">", "<", "`", "$(", ">>"]):
+        return False
+
+    segments = [seg.strip() for seg in _SHELL_SPLIT_RE.split(command) if seg.strip()]
+    if not segments:
+        return False
+
+    for segment in segments:
+        parts = [p for p in segment.split() if p]
+        if not parts:
+            continue
+
+        # Skip env assignments at the front of the command.
+        while parts and "=" in parts[0] and not parts[0].startswith("-"):
+            parts = parts[1:]
+        if not parts:
+            return False
+
+        if parts[0] == "sudo":
+            parts = parts[1:]
+            if not parts:
+                return False
+
+        cmd = parts[0].lower()
+        if cmd == "git":
+            if len(parts) < 2:
+                return False
+            sub = parts[1].lower()
+            if sub not in _GIT_READ_ONLY_SUBCOMMANDS:
+                return False
+            if sub == "remote" and len(parts) >= 3 and parts[2].lower() != "show":
+                return False
+            continue
+
+        if cmd == "sed":
+            # treat in-place edits as mutating
+            if any(flag == "-i" or flag.startswith("-i") for flag in parts[1:]):
+                return False
+
+        if cmd not in _READ_ONLY_TERMINAL_COMMANDS:
+            return False
+
+    return True
 
 
 def _risk_for_tool(tool_name: str, tool_args: dict[str, Any], policy: dict[str, Any]) -> tuple[str, bool]:
@@ -146,6 +249,10 @@ def _risk_for_tool(tool_name: str, tool_args: dict[str, Any], policy: dict[str, 
     if tool_name == "code_execution_tool":
         runtime = str(tool_args.get("runtime", "")).strip().lower()
         if runtime == "terminal":
+            if bool(policy.get("allow_readonly_terminal_without_approval")) and _is_read_only_terminal_command(
+                tool_args.get("code")
+            ):
+                return "low", False
             return "critical", False
         if runtime in {"python", "nodejs"}:
             return "high", False
@@ -290,6 +397,11 @@ def evaluate_tool_gate(agent: Any, tool_name: str, tool_args: dict[str, Any] | N
         }
 
     risk, unknown_tool = _risk_for_tool(tool_name, args, policy)
+    is_readonly_terminal = (
+        tool_name == "code_execution_tool"
+        and str(args.get("runtime", "")).strip().lower() == "terminal"
+        and _is_read_only_terminal_command(args.get("code"))
+    )
 
     override_decision: str | None = None
     overrides = policy.get("tool_overrides", {})
@@ -300,13 +412,18 @@ def evaluate_tool_gate(agent: Any, tool_name: str, tool_args: dict[str, Any] | N
             if decision_raw in {"allow", "deny", "require_approval"}:
                 override_decision = decision_raw
 
-    decision = override_decision or _resolve_decision(
-        str(policy.get("mode", "standard")),
-        risk,
-        unknown_tool,
-        list(policy.get("require_approval_for", ["high", "critical"])),
-        str(policy.get("default_policy", "allow")),
-    )
+    if override_decision:
+        decision = override_decision
+    elif bool(policy.get("allow_readonly_terminal_without_approval")) and is_readonly_terminal:
+        decision = "allow"
+    else:
+        decision = _resolve_decision(
+            str(policy.get("mode", "standard")),
+            risk,
+            unknown_tool,
+            list(policy.get("require_approval_for", ["high", "critical"])),
+            str(policy.get("default_policy", "allow")),
+        )
 
     tool_call_hash = _deterministic_tool_call_hash(project_name, tool_name, args)
     token = f"gov_{tool_call_hash[:20]}"
@@ -341,6 +458,7 @@ def evaluate_tool_gate(agent: Any, tool_name: str, tool_args: dict[str, Any] | N
     return {
         "decision": decision,
         "risk": risk,
+        "readonly_terminal": is_readonly_terminal,
         "mode": policy.get("mode", "standard"),
         "token": token,
         "approval_id": approval_id,

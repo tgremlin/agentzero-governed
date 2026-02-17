@@ -1,5 +1,6 @@
 import asyncio
 from dataclasses import dataclass
+import os
 import shlex
 import time
 from python.helpers.tool import Tool, Response
@@ -120,6 +121,17 @@ class CodeExecution(Tool):
     async def after_execution(self, response, **kwargs):
         self.agent.hist_add_tool_result(self.name, response.message, **(response.additional or {}))
 
+    def _governance_token(self) -> str:
+        return str(self.args.get("__governance_gate_evaluated", "")).strip()
+
+    def _governed_shell_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        token = self._governance_token()
+        if token:
+            env["A0_GOVERNANCE_GATE_TOKEN"] = token
+            env["__governance_gate_evaluated"] = token
+        return env
+
     async def prepare_state(self, reset=False, session: int | None = None):
         self.state: State | None = self.agent.get_data("_cet_state")
         # always reset state when ssh_enabled changes
@@ -157,7 +169,10 @@ class CodeExecution(Tool):
                     cwd=cwd,
                 )
             else:
-                shell = LocalInteractiveSession(cwd=cwd)
+                shell = LocalInteractiveSession(
+                    cwd=cwd,
+                    env=self._governed_shell_env(),
+                )
 
             shells[session] = ShellWrap(id=session, session=shell, running=False)
             await shell.connect()

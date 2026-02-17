@@ -53,7 +53,7 @@
     }
 
     .projects-toggle input:checked + .projects-toggle-slider {
-        background-color: var(--color-primary);
+        background-color: #2196f3;
     }
 
     .projects-toggle input:checked + .projects-toggle-slider:before {
@@ -166,11 +166,15 @@
                     require_approval_for: ['medium', 'high', 'critical'],
                     default_policy: 'allow',
                     policy_file: 'governance/config/policy.json',
+                    allow_readonly_terminal_without_approval: false,
                     tool_overrides: {}
                 };
             }
             if (!p.policy_config.tool_overrides || typeof p.policy_config.tool_overrides !== 'object') {
                 p.policy_config.tool_overrides = {};
+            }
+            if (typeof p.policy_config.allow_readonly_terminal_without_approval !== 'boolean') {
+                p.policy_config.allow_readonly_terminal_without_approval = false;
             }
         },
         toolAllowed(toolKey) {
@@ -204,6 +208,22 @@
 
                 <template x-if="$store.projects.selectedProject.governance.enabled">
                     <div>
+                        <div class="projects-form-group">
+                            <div class="projects-toggle-row">
+                                <label class="projects-form-label">Auto-Allow Read-Only Terminal Commands</label>
+                                <label class="projects-toggle">
+                                    <input type="checkbox"
+                                        x-model="$store.projects.selectedProject.policy_config.allow_readonly_terminal_without_approval"
+                                        @change="ensurePolicyConfig()">
+                                    <span class="projects-toggle-slider"></span>
+                                </label>
+                            </div>
+                            <span class="projects-form-description">
+                                Allows safe read-only terminal commands (for example: ls, cat, rg, find) without approval.
+                                Mutating commands still require approval based on policy.
+                            </span>
+                        </div>
+
                         <div class="projects-form-group">
                             <label class="projects-form-label">Governance Mode</label>
                             <span class="projects-form-description">Choose how strict governance should be for this project.</span>

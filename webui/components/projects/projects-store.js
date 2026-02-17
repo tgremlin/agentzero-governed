@@ -366,6 +366,9 @@ const model = {
           : ["medium", "high", "critical"];
         data.policy_config.default_policy = String(data.governance.default_policy || "allow");
         data.policy_config.policy_file = String(data.governance.policy_file || "governance/config/policy.json");
+        data.policy_config.allow_readonly_terminal_without_approval = Boolean(
+          data.policy_config.allow_readonly_terminal_without_approval
+        );
 
         if (!data.policy_config.tool_overrides || typeof data.policy_config.tool_overrides !== "object") {
           data.policy_config.tool_overrides = {};
@@ -441,6 +444,7 @@ const model = {
         require_approval_for: ["medium", "high", "critical"],
         default_policy: "allow",
         policy_file: "governance/config/policy.json",
+        allow_readonly_terminal_without_approval: false,
         tool_overrides: {}
       }
     };

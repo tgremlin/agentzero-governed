@@ -1626,3 +1626,213 @@ body *::-webkit-scrollbar-thumb:active {
 .light-mode *::-webkit-scrollbar-thumb:active {
   background-color: #8a8a8a;
 }
+
+/* === GOVERNANCE APPROVAL CARDS === */
+.governance-approval-card {
+  border: 1px solid var(--color-border);
+  border-left: 4px solid #2196f3;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: rgba(33, 150, 243, 0.08) !important;
+}
+
+.governance-approval-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.governance-approval-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.governance-approval-status {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+}
+
+.governance-approval-status-pending {
+  color: #856404;
+  background: #fff3cd;
+  border-color: #ffe08a;
+}
+
+.governance-approval-status-approved {
+  color: #155724;
+  background: #d4edda;
+  border-color: #a3d9b1;
+}
+
+.governance-approval-status-denied {
+  color: #721c24;
+  background: #f8d7da;
+  border-color: #efb5bb;
+}
+
+.governance-approval-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.governance-meta-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.8;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.governance-meta-value {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.governance-approval-id {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.82rem;
+}
+
+.governance-risk-critical {
+  color: #b71c1c;
+}
+
+.governance-risk-high {
+  color: #ad6800;
+}
+
+.governance-risk-medium {
+  color: #2450a6;
+}
+
+.governance-risk-low {
+  color: #216e39;
+}
+
+.governance-approval-section-title {
+  display: block;
+  margin: 8px 0 6px 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.governance-approval-args {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: rgba(0, 0, 0, 0.1);
+  font-size: 0.9rem;
+  line-height: 1.38;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.light-mode .governance-approval-args {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.governance-approval-args-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.governance-approval-args-row th,
+.governance-approval-args-row td {
+  border-top: 1px solid var(--color-border);
+  padding: 8px 8px;
+  vertical-align: top;
+}
+
+.governance-approval-args-row:first-child th,
+.governance-approval-args-row:first-child td {
+  border-top: none;
+}
+
+.governance-approval-args-row th {
+  width: 160px;
+  max-width: 160px;
+  text-align: left;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.8;
+  word-break: break-word;
+}
+
+.governance-arg-value {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.governance-arg-value-code {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.84rem;
+  line-height: 1.38;
+}
+
+.governance-rationale {
+  width: 100%;
+  margin-top: 2px;
+  min-height: 72px;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  padding: 8px 10px;
+}
+
+.governance-approval-actions {
+  margin-top: 10px;
+  gap: 8px;
+}
+
+.governance-approval-feedback {
+  margin-top: 8px;
+  font-size: 0.82rem;
+  opacity: 0.9;
+}
+
+.governance-approval-resolved .governance-rationale {
+  opacity: 0.75;
+}
+
+@media (max-width: 700px) {
+  .governance-approval-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .governance-approval-args-row th,
+  .governance-approval-args-row td {
+    display: block;
+    width: auto;
+    max-width: none;
+    border-top: none;
+    padding: 6px 6px;
+  }
+
+  .governance-approval-args-row {
+    border-top: 1px solid var(--color-border);
+  }
+
+  .governance-approval-args-row:first-child {
+    border-top: none;
+  }
+}
