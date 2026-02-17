@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from python.governance_runtime import temporal_client
 
 
@@ -32,7 +34,7 @@ def test_start_governed_run_persists_when_repo_available(monkeypatch):
     repo = _FakeRepo()
     monkeypatch.setattr(temporal_client, "get_postgres_repo", lambda: repo)
 
-    out = temporal_client.start_governed_run(context_id="ctx_1", project_name="p1")
+    out = asyncio.run(temporal_client.start_governed_run(context_id="ctx_1", project_name="p1"))
 
     assert out["run_id"] == "11111111-1111-1111-1111-111111111111"
     assert out["status"] == "queued"
@@ -45,10 +47,12 @@ def test_signal_governed_run_updates_status_and_event(monkeypatch):
     repo = _FakeRepo()
     monkeypatch.setattr(temporal_client, "get_postgres_repo", lambda: repo)
 
-    out = temporal_client.signal_governed_run(
-        run_id="11111111-1111-1111-1111-111111111111",
-        signal="pause",
-        payload={"reason": "manual"},
+    out = asyncio.run(
+        temporal_client.signal_governed_run(
+            run_id="11111111-1111-1111-1111-111111111111",
+            signal="pause",
+            payload={"reason": "manual"},
+        )
     )
 
     assert out["status"] == "paused"

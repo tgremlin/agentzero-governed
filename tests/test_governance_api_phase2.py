@@ -15,6 +15,12 @@ class _DummyContext:
         self.id = ctxid
 
 
+class _DummyRequest:
+    def __init__(self, method: str = "POST", args: dict | None = None) -> None:
+        self.method = method
+        self.args = args or {}
+
+
 def test_governance_run_start_disabled_returns_409(monkeypatch):
     import python.api.governance_run_start as mod
 
@@ -35,10 +41,14 @@ def test_governance_run_start_success(monkeypatch):
     monkeypatch.setattr(mod, "is_temporal_enabled", lambda: True)
     monkeypatch.setattr(handler, "use_context", lambda _ctxid: dummy)
     monkeypatch.setattr(mod.projects, "get_context_project_name", lambda _ctx: "p1")
+
+    async def _start_governed_run(**_kwargs):
+        return {"run_id": "r1", "status": "queued", "persisted": True}
+
     monkeypatch.setattr(
         mod,
         "start_governed_run",
-        lambda **_kwargs: {"run_id": "r1", "status": "queued", "persisted": True},
+        _start_governed_run,
     )
 
     out = __import__("asyncio").run(handler.process({"context_id": "ctx_1"}, None))
@@ -57,10 +67,13 @@ def test_governance_run_signal_validation_and_success(monkeypatch):
     bad = __import__("asyncio").run(handler.process({"run_id": "r1", "signal": "bogus"}, None))
     assert getattr(bad, "status_code", None) == 400
 
+    async def _signal_governed_run(**_kwargs):
+        return {"run_id": "r1", "signal": "pause", "status": "paused", "persisted": True}
+
     monkeypatch.setattr(
         mod,
         "signal_governed_run",
-        lambda **_kwargs: {"run_id": "r1", "signal": "pause", "status": "paused", "persisted": True},
+        _signal_governed_run,
     )
     ok = __import__("asyncio").run(handler.process({"run_id": "r1", "signal": "pause"}, None))
     assert ok["ok"] is True
@@ -81,7 +94,9 @@ def test_governance_events_reads_by_context(monkeypatch):
         lambda project_name=None, limit=200: [{"type": "run.started", "project_name": project_name, "limit": limit}],
     )
 
-    out = __import__("asyncio").run(handler.process({"context_id": "ctx_1", "limit": 25}, None))
+    out = __import__("asyncio").run(
+        handler.process({"context_id": "ctx_1", "limit": 25}, _DummyRequest("POST"))
+    )
 
     assert out["ok"] is True
     assert out["project_name"] == "p1"
@@ -121,21 +136,21 @@ def test_governance_events_filters_and_export(monkeypatch):
                 "status": "pending",
                 "q": "code_execution_tool",
             },
-            None,
+            _DummyRequest("POST"),
         )
     )
     assert filtered["count"] == 1
     assert filtered["total"] == 1
 
     csv_resp = __import__("asyncio").run(
-        handler.process({"project_name": "p1", "export_format": "csv", "limit": 10}, None)
+        handler.process({"project_name": "p1", "export_format": "csv", "limit": 10}, _DummyRequest("POST"))
     )
     assert getattr(csv_resp, "status_code", None) == 200
     assert "text/csv" in str(getattr(csv_resp, "mimetype", ""))
     assert "approval.requested" in csv_resp.get_data(as_text=True)
 
     jsonl_resp = __import__("asyncio").run(
-        handler.process({"project_name": "p1", "export_format": "jsonl", "limit": 10}, None)
+        handler.process({"project_name": "p1", "export_format": "jsonl", "limit": 10}, _DummyRequest("POST"))
     )
     assert getattr(jsonl_resp, "status_code", None) == 200
     assert "application/x-ndjson" in str(getattr(jsonl_resp, "mimetype", ""))
@@ -167,14 +182,14 @@ def test_training_candidates_filter_and_export(monkeypatch):
     monkeypatch.setattr(mod, "load_governance_events", lambda project_name=None, limit=200: events)
 
     out = __import__("asyncio").run(
-        handler.process({"project_name": "p1", "training_status": "ready"}, None)
+        handler.process({"project_name": "p1", "training_status": "ready"}, _DummyRequest("POST"))
     )
     assert out["ok"] is True
     assert out["count"] == 1
     assert out["items"][0]["training_status"] == "ready"
 
     csv_resp = __import__("asyncio").run(
-        handler.process({"project_name": "p1", "export_format": "csv", "limit": 10}, None)
+        handler.process({"project_name": "p1", "export_format": "csv", "limit": 10}, _DummyRequest("POST"))
     )
     assert getattr(csv_resp, "status_code", None) == 200
     assert "text/csv" in str(getattr(csv_resp, "mimetype", ""))
@@ -183,7 +198,7 @@ def test_training_candidates_filter_and_export(monkeypatch):
 
 def test_system_trace_scaffold_contract():
     handler = SystemTrace(None, threading.Lock())
-    out = __import__("asyncio").run(handler.process({}, None))
+    out = __import__("asyncio").run(handler.process({}, _DummyRequest("POST")))
     assert out["ok"] is True
     assert out["coming_soon"] is True
     assert isinstance(out.get("types"), list)
