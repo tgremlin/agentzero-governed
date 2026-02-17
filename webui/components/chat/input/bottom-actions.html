@@ -73,6 +73,43 @@
             </svg>
             <p>Nudge</p>
         </button>
+
+        <button class="text-button" @click="$store.chatInput.startGovernedRun()" :disabled="!$store.chats.selected">
+            <span class="material-symbols-outlined">play_circle</span>
+            <p>Start Gov Run</p>
+        </button>
+
+        <button class="text-button" @click="$store.chatInput.signalGovernedRun('pause')" :disabled="!$store.chatInput.governanceRunId">
+            <span class="material-symbols-outlined">pause_circle</span>
+            <p>Pause Run</p>
+        </button>
+
+        <button class="text-button" @click="$store.chatInput.signalGovernedRun('resume')" :disabled="!$store.chatInput.governanceRunId">
+            <span class="material-symbols-outlined">play_arrow</span>
+            <p>Resume Run</p>
+        </button>
+
+        <button class="text-button" @click="$store.chatInput.signalGovernedRun('cancel')" :disabled="!$store.chatInput.governanceRunId">
+            <span class="material-symbols-outlined">cancel</span>
+            <p>Cancel Run</p>
+        </button>
+
+        <button class="text-button" @click="$store.chatInput.refreshGovernanceEvents()">
+            <span class="material-symbols-outlined">sync</span>
+            <p>Sync Gov Events</p>
+        </button>
+
+        <button class="text-button" @click="$store.chatInput.openDataEvents()">
+            <span class="material-symbols-outlined">data_table</span>
+            <p>Data Events</p>
+        </button>
+      </div>
+      <div class="text-buttons-row governance-run-row">
+        <span class="governance-run-meta" x-show="$store.chatInput.governanceRunId">
+          Run: <code x-text="$store.chatInput.governanceRunId"></code>
+        </span>
+        <span class="governance-run-meta" x-text="`Events: ${($store.chatInput.governanceEvents || []).length}`"></span>
+        <span class="governance-run-error" x-show="$store.chatInput.governanceEventsError" x-text="$store.chatInput.governanceEventsError"></span>
       </div>
     </template>
   </div>
@@ -86,10 +123,12 @@
         .text-button svg { width: 14px; height: 14px; flex-shrink: 0; }
         .text-button .material-symbols-outlined { font-size: 14px; flex-shrink: 0; }
         .text-button p { margin-block: 0; }
+        .governance-run-row { padding-top: 2px; gap: var(--spacing-sm); }
+        .governance-run-meta { font-size: 0.65rem; opacity: 0.8; }
+        .governance-run-error { font-size: 0.65rem; color: #d35400; }
 
         @media (max-width: 768px) { .text-buttons-row { width: 90%; display: flex; padding-top: var(--spacing-xs); gap: var(--spacing-xs); white-space: pre-wrap; } .text-button { font-size: 0.6rem; } .text-button svg { width: 18px; height: 18px; flex-shrink: 0; } .text-button .material-symbols-outlined { font-size: 18px; } }
         @media (max-width: 640px) { .text-buttons-row { display: flex; width: 90%; padding-top: var(--spacing-xs); gap: var(--spacing-xs); white-space: pre-wrap; } .text-button { max-height: 25px; } .text-button p { display: none; } }
     </style>
 </body>
 </html>
-

@@ -1,6 +1,6 @@
 from agent import Agent, UserMessage
 from python.helpers.tool import Tool, Response
-from python.helpers.governance_gate import evaluate_tool_gate
+from python.helpers import governance_gate
 from python.tools.code_execution_tool import CodeExecution
 
 
@@ -23,7 +23,7 @@ class Input(Tool):
         }
 
         # === GOVERNANCE_MODE BEGIN ===
-        gate = evaluate_tool_gate(self.agent, "code_execution_tool", args)
+        gate = governance_gate.evaluate_tool_gate(self.agent, "code_execution_tool", args)
         decision = str(gate.get("decision", "allow"))
         if decision == "require_approval":
             return Response(

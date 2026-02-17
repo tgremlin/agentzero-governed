@@ -1,0 +1,163 @@
+<html>
+<head>
+  <title>Data Events</title>
+  <script type="module">
+    import { store } from "/components/modals/data-events/data-events-store.js";
+  </script>
+</head>
+<body>
+  <div x-data x-init="$store.dataEvents.init()">
+    <template x-if="$store.dataEvents">
+      <div class="data-events-root">
+        <div class="data-events-tabs">
+          <button class="tab-btn" :class="{active: $store.dataEvents.activeTab === 'governance'}" @click="$store.dataEvents.setTab('governance')">Governance</button>
+          <button class="tab-btn" :class="{active: $store.dataEvents.activeTab === 'training'}" @click="$store.dataEvents.setTab('training')">Training Candidates</button>
+          <button class="tab-btn" :class="{active: $store.dataEvents.activeTab === 'system'}" @click="$store.dataEvents.setTab('system')">System/Trace</button>
+        </div>
+
+        <div class="tab-pane">
+          <div class="coming-soon-banner" x-show="$store.dataEvents.comingSoon || $store.dataEvents.activeTab !== 'governance'">
+            <strong>Coming soon:</strong>
+            <span x-text="$store.dataEvents.comingSoonMessage || 'Additional data pipelines and datasets are being wired.'"></span>
+          </div>
+
+          <div class="type-scaffold-grid" x-show="$store.dataEvents.activeTab === 'system'">
+            <template x-for="(type, idx) in $store.dataEvents.availableTypes" :key="idx">
+              <div class="type-scaffold-card">
+                <div class="type-scaffold-title" x-text="type.label"></div>
+                <div class="type-scaffold-status" x-text="type.status || 'coming_soon'"></div>
+              </div>
+            </template>
+          </div>
+
+          <div x-show="$store.dataEvents.activeTab !== 'system'">
+            <div class="filters-grid">
+              <input type="text" placeholder="Search JSON payload..." x-model="$store.dataEvents.filters.q" />
+              <input
+                type="text"
+                :placeholder="$store.dataEvents.activeTab === 'training' ? 'Event type (e.g. approval.resolved)' : 'Event type (e.g. approval.requested)'"
+                x-model="$store.dataEvents.filters.event_type"
+              />
+              <input
+                type="text"
+                :placeholder="$store.dataEvents.activeTab === 'training' ? 'Training status (ready/pending_review/exclude)' : 'Status (pending/approved/denied)'"
+                x-model="$store.dataEvents.filters.status"
+              />
+              <input type="text" placeholder="Run ID" x-model="$store.dataEvents.filters.run_id" />
+              <input type="text" placeholder="From ISO time" x-model="$store.dataEvents.filters.from_ts" />
+              <input type="text" placeholder="To ISO time" x-model="$store.dataEvents.filters.to_ts" />
+            </div>
+
+            <div class="actions-row">
+              <button class="button" @click="$store.dataEvents.page = 1; $store.dataEvents.refresh()">Apply Filters</button>
+              <button class="button" @click="$store.dataEvents.resetFilters()">Reset</button>
+              <button class="button" @click="$store.dataEvents.exportCurrent('jsonl')" :disabled="$store.dataEvents.activeTab === 'system'">Export JSONL</button>
+              <button class="button" @click="$store.dataEvents.exportCurrent('csv')" :disabled="$store.dataEvents.activeTab === 'system'">Export CSV</button>
+            </div>
+          </div>
+
+          <div class="training-actions" x-show="$store.dataEvents.activeTab === 'training'">
+            <input type="text" placeholder="Optional note for bulk update" x-model="$store.dataEvents.trainingNote" />
+            <button class="button" @click="$store.dataEvents.selectAllVisible()">Select Visible</button>
+            <button class="button" @click="$store.dataEvents.clearSelection()">Clear Selection</button>
+            <button class="button" @click="$store.dataEvents.bulkUpdateTraining('mark_ready')">Mark Ready</button>
+            <button class="button" @click="$store.dataEvents.bulkUpdateTraining('mark_pending')">Mark Pending</button>
+            <button class="button" @click="$store.dataEvents.bulkUpdateTraining('exclude')">Exclude</button>
+            <button class="button" @click="$store.dataEvents.bulkUpdateTraining('reset')">Reset Overrides</button>
+            <span class="selected-count" x-text="`Selected: ${$store.dataEvents.selectedCandidateIds.length}`"></span>
+          </div>
+
+          <div class="meta-row">
+            <span x-text="`Total: ${$store.dataEvents.total}`"></span>
+            <span x-text="`Page: ${$store.dataEvents.page}/${$store.dataEvents.totalPages}`"></span>
+            <span class="error" x-show="$store.dataEvents.error" x-text="$store.dataEvents.error"></span>
+          </div>
+
+          <div class="events-table-wrap" x-show="!$store.dataEvents.loading">
+            <table class="table data-events-table">
+              <thead>
+                <tr>
+                  <th x-show="$store.dataEvents.activeTab === 'training'">Select</th>
+                  <th x-text="$store.dataEvents.activeTab === 'training' ? 'Candidate ID' : 'Time'"></th>
+                  <th x-text="$store.dataEvents.activeTab === 'training' ? 'Created' : 'Type'"></th>
+                  <th x-text="$store.dataEvents.activeTab === 'training' ? 'Training Status' : 'Status'"></th>
+                  <th x-text="$store.dataEvents.activeTab === 'training' ? 'Score' : 'Project'"></th>
+                  <th>Run</th>
+                  <th x-text="$store.dataEvents.activeTab === 'training' ? 'Summary / Payload' : 'Details'"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="(event, idx) in $store.dataEvents.items" :key="idx">
+                  <tr>
+                    <td x-show="$store.dataEvents.activeTab === 'training'">
+                      <input
+                        type="checkbox"
+                        :checked="$store.dataEvents.isSelected(event.candidate_id)"
+                        @change="$store.dataEvents.toggleSelect(event.candidate_id)"
+                      />
+                    </td>
+                    <td x-text="$store.dataEvents.activeTab === 'training' ? event.candidate_id || '' : (event.event_ts || event.created_at || '')"></td>
+                    <td x-text="$store.dataEvents.activeTab === 'training' ? (event.created_at || '') : (event.type || '')"></td>
+                    <td x-text="$store.dataEvents.activeTab === 'training' ? (event.training_status || '') : (event.status || '')"></td>
+                    <td x-text="$store.dataEvents.activeTab === 'training' ? String(event.score ?? '') : (event.project_name || '')"></td>
+                    <td><code x-text="event.run_id || ''"></code></td>
+                    <td>
+                      <template x-if="$store.dataEvents.activeTab === 'training'">
+                        <div class="training-summary">
+                          <div x-text="event.summary || ''"></div>
+                          <div class="training-note" x-show="event.note" x-text="`Note: ${event.note}`"></div>
+                        </div>
+                      </template>
+                      <details>
+                        <summary>Payload</summary>
+                        <pre x-text="JSON.stringify(event, null, 2)"></pre>
+                      </details>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="loading-row" x-show="$store.dataEvents.loading">Loading data events...</div>
+
+          <div class="pager-row">
+            <button class="button" @click="$store.dataEvents.prevPage()" :disabled="$store.dataEvents.page <= 1">Prev</button>
+            <button class="button" @click="$store.dataEvents.nextPage()" :disabled="$store.dataEvents.page >= $store.dataEvents.totalPages">Next</button>
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <style>
+    .data-events-root { display: flex; flex-direction: column; gap: 10px; min-height: 420px; }
+    .data-events-tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--color-border); padding-bottom: 8px; }
+    .tab-btn { background: transparent; border: 1px solid var(--color-border); border-radius: 6px; padding: 6px 10px; cursor: pointer; color: var(--color-text); }
+    .tab-btn.active { background: var(--color-background-hover); }
+    .tab-pane { display: flex; flex-direction: column; gap: 10px; }
+    .filters-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .filters-grid input { width: 100%; }
+    .actions-row, .pager-row, .meta-row, .training-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .meta-row { font-size: 0.85rem; opacity: 0.9; }
+    .meta-row .error { color: #d35400; }
+    .selected-count { font-size: 0.85rem; opacity: 0.85; }
+    .events-table-wrap { max-height: 56vh; overflow: auto; border: 1px solid var(--color-border); border-radius: 6px; }
+    .data-events-table td, .data-events-table th { vertical-align: top; }
+    .data-events-table pre { margin: 0; max-width: 600px; overflow: auto; white-space: pre-wrap; }
+    .loading-row { opacity: 0.8; }
+    .coming-soon-banner { border: 1px dashed var(--color-border); border-radius: 6px; padding: 8px; font-size: 0.85rem; opacity: 0.9; }
+    .type-scaffold-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .type-scaffold-card { border: 1px solid var(--color-border); border-radius: 6px; padding: 8px; background: var(--color-panel); }
+    .type-scaffold-title { font-weight: 600; }
+    .type-scaffold-status { font-size: 0.8rem; opacity: 0.8; text-transform: lowercase; }
+    .training-summary { font-size: 0.85rem; margin-bottom: 6px; }
+    .training-note { font-size: 0.8rem; opacity: 0.8; }
+
+    @media (max-width: 900px) {
+      .filters-grid { grid-template-columns: 1fr; }
+      .type-scaffold-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</body>
+</html>

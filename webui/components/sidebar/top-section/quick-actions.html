@@ -31,6 +31,11 @@
         <span class="material-symbols-outlined">settings</span>
       </button>
 
+      <!-- Data Events -->
+      <button class="config-button" id="data-events" @click="openModal('modals/data-events/data-events.html')" title="Data Events">
+        <span class="material-symbols-outlined">data_table</span>
+      </button>
+
       <!-- Dropdown Toggle -->
       <button class="config-button dropdown-toggle" @click="dropdownOpen = !dropdownOpen" title="More options">
         <span class="material-symbols-outlined" :class="dropdownOpen ? 'rotated' : ''">expand_more</span>
@@ -67,6 +72,11 @@
       <button class="dropdown-item" @click="openModal('settings/settings.html'); dropdownOpen = false">
         <span class="material-symbols-outlined">settings</span>
         <span>Settings</span>
+      </button>
+
+      <button class="dropdown-item" @click="openModal('modals/data-events/data-events.html'); dropdownOpen = false">
+        <span class="material-symbols-outlined">data_table</span>
+        <span>Data Events</span>
       </button>
       
       <div class="dropdown-separator"></div>

@@ -1,11 +1,15 @@
 import base64
 import warnings
-import whisper
 import tempfile
 import asyncio
 from python.helpers import runtime, rfc, settings, files
 from python.helpers.print_style import PrintStyle
 from python.helpers.notification import NotificationManager, NotificationType, NotificationPriority
+
+try:
+    import whisper  # type: ignore[import-not-found]
+except Exception:
+    whisper = None  # type: ignore[assignment]
 
 # Suppress FutureWarning from torch.load
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -24,6 +28,9 @@ async def preload(model_name:str):
         
 async def _preload(model_name:str):
     global _model, _model_name, is_updating_model
+
+    if whisper is None:
+        raise RuntimeError("openai-whisper is not installed")
 
     while is_updating_model:
         await asyncio.sleep(0.1)

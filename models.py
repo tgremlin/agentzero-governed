@@ -40,7 +40,6 @@ from langchain_core.messages import (
     SystemMessage,
 )
 from langchain.embeddings.base import Embeddings
-from sentence_transformers import SentenceTransformer
 from pydantic import ConfigDict
 
 
@@ -580,7 +579,15 @@ class AsyncAIChatReplacement:
         self.chat = AsyncAIChatReplacement._Chat(wrapper)
 
 
-from browser_use.llm import ChatOllama, ChatOpenRouter, ChatGoogle, ChatAnthropic, ChatGroq, ChatOpenAI
+try:
+    from browser_use.llm import ChatOllama, ChatOpenRouter, ChatGoogle, ChatAnthropic, ChatGroq, ChatOpenAI
+except Exception:
+    ChatOllama = None  # type: ignore[assignment]
+    ChatGoogle = None  # type: ignore[assignment]
+    ChatAnthropic = None  # type: ignore[assignment]
+    ChatGroq = None  # type: ignore[assignment]
+    ChatOpenAI = None  # type: ignore[assignment]
+    ChatOpenRouter = object  # type: ignore[assignment]
 
 class BrowserCompatibleChatWrapper(ChatOpenRouter):
     """
@@ -623,7 +630,12 @@ class BrowserCompatibleChatWrapper(ChatOpenRouter):
             kwrgs = {**self._wrapper.kwargs, **kwargs}
 
             # hack from browser-use to fix json schema for gemini (additionalProperties, $defs, $ref)
-            if "response_format" in kwrgs and "json_schema" in kwrgs["response_format"] and model.startswith("gemini/"):
+            if (
+                ChatGoogle is not None
+                and "response_format" in kwrgs
+                and "json_schema" in kwrgs["response_format"]
+                and model.startswith("gemini/")
+            ):
                 kwrgs["response_format"]["json_schema"] = ChatGoogle("")._fix_gemini_schema(kwrgs["response_format"]["json_schema"])
 
             resp = await acompletion(
@@ -719,6 +731,13 @@ class LocalSentenceTransformerWrapper(Embeddings):
             "model_kwargs",
         }
         st_kwargs = {k: v for k, v in (kwargs or {}).items() if k in st_allowed_keys}
+
+        try:
+            from sentence_transformers import SentenceTransformer
+        except Exception as exc:
+            raise RuntimeError(
+                "sentence-transformers dependencies are not installed for local embeddings"
+            ) from exc
 
         self.model = SentenceTransformer(model, **st_kwargs)
         self.model_name = model

@@ -8,6 +8,9 @@ import { store as chatsStore } from "/components/sidebar/chats/chats-store.js";
 const model = {
   paused: false,
   message: "",
+  governanceRunId: "",
+  governanceEvents: [],
+  governanceEventsError: "",
 
   _getSendState() {
     const hasInput = this.message.trim() || attachmentsStore?.attachments?.length > 0;
@@ -52,6 +55,8 @@ const model = {
   init() {
     console.log("Input store initialized");
     // Event listeners are now handled via Alpine directives in the component
+    globalThis.refreshGovernanceEvents = () => this.refreshGovernanceEvents();
+    globalThis.openDataEvents = () => this.openDataEvents();
   },
 
   async sendMessage() {
@@ -93,6 +98,67 @@ const model = {
       if (globalThis.toastFetchError) {
         globalThis.toastFetchError("Error nudging agent", e);
       }
+    }
+  },
+
+  async startGovernedRun() {
+    try {
+      const context = globalThis.getContext?.();
+      const result = await shortcuts.callJsonApi("/governance_run_start", {
+        context_id: context || "",
+      });
+      this.governanceRunId = String(result.run_id || "").trim();
+      this.governanceEventsError = "";
+      await this.refreshGovernanceEvents();
+      this.openDataEvents();
+    } catch (e) {
+      this.governanceEventsError = e?.message || String(e);
+      if (globalThis.toastFetchError) {
+        globalThis.toastFetchError("Error starting governed run", e);
+      }
+    }
+  },
+
+  async signalGovernedRun(signal) {
+    try {
+      if (!this.governanceRunId) throw new Error("No governance run id. Start a run first.");
+      await shortcuts.callJsonApi("/governance_run_signal", {
+        run_id: this.governanceRunId,
+        signal,
+      });
+      this.governanceEventsError = "";
+      await this.refreshGovernanceEvents();
+      this.openDataEvents();
+    } catch (e) {
+      this.governanceEventsError = e?.message || String(e);
+      if (globalThis.toastFetchError) {
+        globalThis.toastFetchError(`Error sending governance signal '${signal}'`, e);
+      }
+    }
+  },
+
+  async refreshGovernanceEvents() {
+    try {
+      const context = globalThis.getContext?.();
+      const result = await shortcuts.callJsonApi("/governance_events", {
+        context_id: context || "",
+        limit: 200,
+      });
+      this.governanceEvents = Array.isArray(result.events) ? result.events : [];
+      this.governanceEventsError = "";
+      return this.governanceEvents;
+    } catch (e) {
+      this.governanceEventsError = e?.message || String(e);
+      if (globalThis.toastFetchError) {
+        globalThis.toastFetchError("Error loading governance events", e);
+      }
+      return [];
+    }
+  },
+
+  openDataEvents() {
+    if (typeof window.openModal === "function") {
+      window.openModal("modals/data-events/data-events.html");
     }
   },
 

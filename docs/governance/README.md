@@ -64,6 +64,12 @@ Guardrails include:
 ## Known Limitations (MVP)
 
 - Same-user approvals only.
-- Durable storage is file-based in current phase; Postgres system-of-record is deferred.
+- Postgres persistence is behind feature flags and optional dependency.
 - Temporal orchestration integration is deferred.
 - In offline dev environments, local pytest setup may fail due dependency fetch limits; CI remains verification source of truth.
+
+## Persistence Flags
+
+- `GOV_PERSIST_BACKEND=file|postgres` (default `file`)
+- `GOV_DUAL_WRITE=true|false` (default `false`)
+- `DATABASE_URL=postgresql+psycopg://...` (required when backend is `postgres`)
