@@ -117,3 +117,33 @@ async def test_code_execution_provenance_assertion(monkeypatch):
 
     with pytest.raises(RepairableException, match="missing gate token"):
         await tool.execute()
+
+
+def test_custom_mode_tool_overrides_take_precedence(monkeypatch):
+    from python.helpers import projects
+
+    agent = _DummyAgent()
+    monkeypatch.setattr(projects, "get_context_project_name", lambda _ctx: "p1")
+
+    monkeypatch.setattr(
+        projects,
+        "load_basic_project_data",
+        lambda _name: {
+            "governance_enabled": True,
+            "governance_mode": "custom",
+            "policy_config": {
+                "require_approval_for": ["high", "critical"],
+                "default_policy": "allow",
+                "tool_overrides": {
+                    "browser_agent": {"decision": "deny"},
+                    "search_engine": {"decision": "allow"},
+                },
+            },
+        },
+    )
+
+    denied = evaluate_tool_gate(agent, "browser_agent", {})
+    assert denied["decision"] == "deny"
+
+    allowed = evaluate_tool_gate(agent, "search_engine", {})
+    assert allowed["decision"] == "allow"

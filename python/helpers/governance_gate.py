@@ -290,7 +290,17 @@ def evaluate_tool_gate(agent: Any, tool_name: str, tool_args: dict[str, Any] | N
         }
 
     risk, unknown_tool = _risk_for_tool(tool_name, args, policy)
-    decision = _resolve_decision(
+
+    override_decision: str | None = None
+    overrides = policy.get("tool_overrides", {})
+    if isinstance(overrides, dict):
+        override = overrides.get(tool_name)
+        if isinstance(override, dict):
+            decision_raw = str(override.get("decision", "")).lower().strip()
+            if decision_raw in {"allow", "deny", "require_approval"}:
+                override_decision = decision_raw
+
+    decision = override_decision or _resolve_decision(
         str(policy.get("mode", "standard")),
         risk,
         unknown_tool,
