@@ -87,6 +87,13 @@ cp .env.client.example .env
 python3 tools/smoke_client_stack.py
 ```
 
+If UI access is from a non-localhost origin (for example another machine on your LAN), set `ALLOWED_ORIGINS` in `.env` and restart:
+
+```bash
+ALLOWED_ORIGINS=http://localhost:50001,http://127.0.0.1:50001,http://192.168.10.121:50001
+./stop.sh && ./start.sh
+```
+
 Persistent data root:
 - Configure `A0_DATA_DIR` in `.env` (default `./client-data`).
 - If `/opt/agentzero/data` exists, `start.sh` auto-uses it for backwards compatibility.

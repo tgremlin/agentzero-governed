@@ -29,6 +29,7 @@ Welcome to the Agent Zero documentation hub. Whether you're getting started or d
 - **[Notifications](developer/notifications.md):** Notification system architecture and setup.
 - **[Contributing Skills](developer/contributing-skills.md):** Create and share agent skills.
 - **[Contributing Guide](guides/contribution.md):** Contribute to the Agent Zero project.
+- **[Governance Runtime](governance/README.md):** Postgres + Temporal governance mode, deployment, and smoke validation.
 
 ## Community & Support
 
