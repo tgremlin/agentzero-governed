@@ -1,0 +1,2 @@
+psycopg[binary]>=3.2.10
+temporalio>=1.9,<2.0

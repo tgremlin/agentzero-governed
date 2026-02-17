@@ -9,6 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from python.helpers.errors import RepairableException
+from python.governance_runtime.repos import (
+    get_persist_backend,
+    get_postgres_repo,
+    is_dual_write_enabled,
+    is_postgres_backend_enabled,
+)
 
 GATE_TOKEN_KEY = "__governance_gate_evaluated"
 TOOL_CALL_HASH_KEY = "__governance_tool_call_hash"
@@ -66,6 +72,18 @@ def _approval_file_path(approval_id: str) -> Path:
 
 
 def _append_governance_event(event: dict[str, Any]) -> None:
+    wrote_postgres = False
+    if is_postgres_backend_enabled():
+        repo = get_postgres_repo()
+        if repo is not None:
+            try:
+                repo.append_event(event)
+                wrote_postgres = True
+            except Exception:
+                wrote_postgres = False
+    if wrote_postgres and not is_dual_write_enabled():
+        return
+
     base = _resolve_governance_storage_dir() / "events"
     base.mkdir(parents=True, exist_ok=True)
     day_file = base / f"events-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d')}.jsonl"
@@ -296,7 +314,7 @@ def _resolve_decision(mode: str, risk: str, unknown_tool: bool, require_approval
 
 def _persist_approval_if_needed(agent: Any, *, project_name: str, tool_name: str, tool_args: dict[str, Any], risk: str, tool_call_hash: str) -> str:
     approval_id = f"apv_{tool_call_hash[:16]}"
-    path = _approval_file_path(approval_id)
+    path: Path | None = None
 
     payload = {
         "approval_id": approval_id,
@@ -310,7 +328,20 @@ def _persist_approval_if_needed(agent: Any, *, project_name: str, tool_name: str
         "updated_at": _now_iso(),
     }
 
-    if path.exists():
+    existing_db_status = "pending"
+    if is_postgres_backend_enabled():
+        repo = get_postgres_repo()
+        if repo is not None:
+            try:
+                existing_db_status = repo.get_approval_status(approval_id)
+            except Exception:
+                existing_db_status = "pending"
+        if existing_db_status in {"approved", "denied"}:
+            return approval_id
+    write_file = get_persist_backend() != "postgres" or is_dual_write_enabled()
+    if write_file:
+        path = _approval_file_path(approval_id)
+    if write_file and path is not None and path.exists():
         try:
             existing = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
@@ -323,7 +354,19 @@ def _persist_approval_if_needed(agent: Any, *, project_name: str, tool_name: str
             payload["status"] = "pending"
             payload["updated_at"] = _now_iso()
 
-    path.write_text(_stable_json(payload), encoding="utf-8")
+    wrote_postgres = False
+    if is_postgres_backend_enabled():
+        repo = get_postgres_repo()
+        if repo is not None:
+            try:
+                repo.upsert_approval(payload)
+                wrote_postgres = True
+            except Exception:
+                wrote_postgres = False
+    if write_file or not wrote_postgres:
+        if path is None:
+            path = _approval_file_path(approval_id)
+        path.write_text(_stable_json(payload), encoding="utf-8")
 
     event = {
         "type": "approval.requested",
@@ -365,6 +408,14 @@ def _persist_approval_if_needed(agent: Any, *, project_name: str, tool_name: str
 
 
 def _load_approval_status(approval_id: str) -> str:
+    if is_postgres_backend_enabled():
+        repo = get_postgres_repo()
+        if repo is not None:
+            try:
+                return repo.get_approval_status(approval_id)
+            except Exception:
+                pass
+
     path = _approval_file_path(approval_id)
     if not path.exists():
         return "pending"
@@ -500,15 +551,41 @@ def resolve_approval(agent: Any, approval_id: str, decision: str, rationale: str
         raise RepairableException(f"Invalid approval decision: {decision}")
 
     status = "approved" if decision_norm == "approved" else "denied"
-    path = _approval_file_path(approval_id)
-    if not path.exists():
-        raise RepairableException(f"Approval not found: {approval_id}")
+    payload: dict[str, Any] | None = None
+    write_file = get_persist_backend() != "postgres" or is_dual_write_enabled()
 
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["status"] = status
-    payload["rationale"] = rationale or ""
-    payload["updated_at"] = _now_iso()
-    path.write_text(_stable_json(payload), encoding="utf-8")
+    if is_postgres_backend_enabled():
+        repo = get_postgres_repo()
+        if repo is not None:
+            try:
+                payload = repo.resolve_approval(approval_id, status, rationale or "")
+            except Exception:
+                payload = None
+
+    if write_file:
+        path = _approval_file_path(approval_id)
+        if not path.exists() and payload is None:
+            raise RepairableException(f"Approval not found: {approval_id}")
+        file_payload: dict[str, Any]
+        if path.exists():
+            file_payload = json.loads(path.read_text(encoding="utf-8"))
+        else:
+            file_payload = {
+                "approval_id": approval_id,
+                "project_name": (payload or {}).get("project_name"),
+                "tool_name": (payload or {}).get("tool_name"),
+                "risk": (payload or {}).get("risk"),
+                "tool_call_hash": (payload or {}).get("tool_call_hash"),
+                "tool_args": {},
+                "created_at": _now_iso(),
+            }
+        file_payload["status"] = status
+        file_payload["rationale"] = rationale or ""
+        file_payload["updated_at"] = _now_iso()
+        path.write_text(_stable_json(file_payload), encoding="utf-8")
+        payload = file_payload
+    elif payload is None:
+        raise RepairableException(f"Approval not found: {approval_id}")
 
     event = {
         "type": "approval.resolved",
@@ -516,10 +593,10 @@ def resolve_approval(agent: Any, approval_id: str, decision: str, rationale: str
         "approval_id": approval_id,
         "status": status,
         "rationale": rationale or "",
-        "project_name": payload.get("project_name"),
-        "tool_name": payload.get("tool_name"),
-        "risk": payload.get("risk"),
-        "tool_call_hash": payload.get("tool_call_hash"),
+        "project_name": (payload or {}).get("project_name"),
+        "tool_name": (payload or {}).get("tool_name"),
+        "risk": (payload or {}).get("risk"),
+        "tool_call_hash": (payload or {}).get("tool_call_hash"),
     }
     _append_governance_event(event)
 
@@ -560,6 +637,14 @@ def _project_matches(payload: dict[str, Any], project_name: str | None) -> bool:
 
 
 def load_governance_approvals(project_name: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    if is_postgres_backend_enabled():
+        repo = get_postgres_repo()
+        if repo is not None:
+            try:
+                return repo.load_approvals(project_name=project_name, limit=limit)
+            except Exception:
+                pass
+
     base = _resolve_governance_storage_dir() / "approvals"
     if not base.exists():
         return []
@@ -581,6 +666,14 @@ def load_governance_approvals(project_name: str | None = None, limit: int = 200)
 
 
 def load_governance_events(project_name: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    if is_postgres_backend_enabled():
+        repo = get_postgres_repo()
+        if repo is not None:
+            try:
+                return repo.load_events(project_name=project_name, limit=limit)
+            except Exception:
+                pass
+
     base = _resolve_governance_storage_dir() / "events"
     if not base.exists():
         return []

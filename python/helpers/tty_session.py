@@ -6,9 +6,11 @@ if _IS_WIN:
     import msvcrt
 
 
-#  Make stdin / stdout tolerant to broken UTF-8 so input() never aborts
-sys.stdin.reconfigure(errors="replace")  # type: ignore
-sys.stdout.reconfigure(errors="replace")  # type: ignore
+# Make stdin/stdout tolerant to broken UTF-8 when available.
+if hasattr(sys.stdin, "reconfigure"):
+    sys.stdin.reconfigure(errors="replace")  # type: ignore[attr-defined]
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="replace")  # type: ignore[attr-defined]
 
 
 # === GOVERNANCE_MODE BEGIN ===

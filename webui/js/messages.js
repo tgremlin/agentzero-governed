@@ -1721,6 +1721,12 @@ function createApprovalCardElement(approval, contextId) {
       const resolved = String(result.status || decision).toLowerCase();
       setResolvedState(resolved);
       feedback.textContent = `Decision recorded: ${resolved}.`;
+      if (typeof globalThis.refreshGovernanceEvents === "function") {
+        globalThis.refreshGovernanceEvents();
+      }
+      if (typeof globalThis.openDataEvents === "function") {
+        globalThis.openDataEvents();
+      }
     } catch (error) {
       feedback.textContent = `Failed to submit decision: ${error?.message || error}`;
     }

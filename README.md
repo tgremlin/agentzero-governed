@@ -66,6 +66,34 @@ docker run -p 50001:80 agent0ai/agent-zero
 # Visit http://localhost:50001 to start
 ```
 
+### Client Stack (Fork: Postgres + Temporal)
+
+This fork includes a client deployment stack with:
+- Postgres persistence for governance state
+- Temporal workflow orchestration
+- Governance worker process
+
+```bash
+cp .env.client.example .env
+./start.sh
+python3 tools/smoke_client_stack.py
+```
+
+Data persistence:
+- Set `A0_DATA_DIR` in `.env` to control where `usr/tmp/logs/knowledge` live.
+- Default is `./client-data`.
+- Existing installs at `/opt/agentzero/data` are auto-detected by `start.sh`.
+
+Services:
+- App: `http://127.0.0.1:50001`
+- Temporal UI: `http://127.0.0.1:8233`
+
+Stop:
+
+```bash
+./stop.sh
+```
+
 
 # 💡 Key Features
 

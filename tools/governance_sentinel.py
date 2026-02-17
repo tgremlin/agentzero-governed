@@ -21,10 +21,22 @@ AGENT_PY = SEARCH_ROOT / "agent.py"
 INPUT_PY = SEARCH_ROOT / "python/tools/input.py"
 GATE_PY = SEARCH_ROOT / "python/helpers/governance_gate.py"
 CODE_EXEC_TOOL_PY = SEARCH_ROOT / "python/tools/code_execution_tool.py"
+EXCLUDED_PARTS = {
+    "__pycache__",
+    ".venv",
+    "venv",
+    "site-packages",
+    "node_modules",
+    ".git",
+}
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _is_excluded(path: Path) -> bool:
+    return any(part in EXCLUDED_PARTS for part in path.parts)
 
 
 def check_agent_dispatcher() -> list[str]:
@@ -65,7 +77,7 @@ def check_direct_codeexecution_calls() -> list[str]:
     errors: list[str] = []
     candidates = list(SEARCH_ROOT.rglob("*.py"))
     for path in candidates:
-        if "__pycache__" in path.parts:
+        if _is_excluded(path):
             continue
         text = _read(path)
         if "CodeExecution(" not in text:
@@ -100,7 +112,7 @@ def check_subprocess_shell_classification() -> tuple[list[str], list[str]]:
         errors.append("governance_gate.py: risk classification function not found")
 
     for path in SEARCH_ROOT.rglob("*.py"):
-        if "__pycache__" in path.parts:
+        if _is_excluded(path):
             continue
         text = _read(path)
         if "create_subprocess_shell" not in text:

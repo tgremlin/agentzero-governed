@@ -76,6 +76,7 @@ def import_module(file_path: str) -> ModuleType:
 def load_classes_from_folder(folder: str, name_pattern: str, base_class: Type[T], one_per_file: bool = True) -> list[Type[T]]:
     classes = []
     abs_folder = get_abs_path(folder)
+    skip_missing_imports = os.getenv("A0_SKIP_MISSING_MODULE_IMPORTS", "").strip().lower() in {"1", "true", "yes", "on"}
 
     # Get all .py files in the folder that match the pattern, sorted alphabetically
     py_files = sorted(
@@ -85,8 +86,13 @@ def load_classes_from_folder(folder: str, name_pattern: str, base_class: Type[T]
     # Iterate through the sorted list of files
     for file_name in py_files:
         file_path = os.path.join(abs_folder, file_name)
-        # Use the new import_module function
-        module = import_module(file_path)
+        try:
+            module = import_module(file_path)
+        except ModuleNotFoundError as e:
+            if not skip_missing_imports:
+                raise
+            print(f"Skipping module due to missing dependency: {file_name} ({e})")
+            continue
 
         # Get all classes in the module
         class_list = inspect.getmembers(module, inspect.isclass)

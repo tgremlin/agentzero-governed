@@ -1,0 +1,109 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: agentzero-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-agentzero}
+      POSTGRES_USER: ${POSTGRES_USER:-agentzero}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agentzero}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentzero} -d ${POSTGRES_DB:-agentzero}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  temporal:
+    image: temporalio/auto-setup:1.26.2
+    container_name: agentzero-temporal
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-agentzero}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:-agentzero}
+      POSTGRES_SEEDS: postgres
+      DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/config/dynamicconfig/development.yaml
+    ports:
+      - "${TEMPORAL_PORT:-7233}:7233"
+    volumes:
+      - ./data/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "temporal operator cluster health --address $$HOSTNAME:7233 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    container_name: agentzero-temporal-ui
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_UI_PORT: 8080
+    ports:
+      - "${TEMPORAL_UI_PORT:-8233}:8080"
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    image: ${APP_IMAGE_NAME:-agentzero-governed}:latest
+    container_name: agentzero
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agentzero}:${POSTGRES_PASSWORD:-agentzero}@postgres:5432/${POSTGRES_DB:-agentzero}
+      GOV_PERSIST_BACKEND: postgres
+      GOV_DUAL_WRITE: "false"
+      GOV_TEMPORAL_ENABLED: "true"
+      TEMPORAL_HOST: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: agentzero-governance
+      PYTHONPATH: /a0
+      WEB_UI_HOST: 0.0.0.0
+      WEB_UI_PORT: 5000
+      TOKENIZERS_PARALLELISM: "false"
+    ports:
+      - "${APP_PORT:-50001}:5000"
+    volumes:
+      - ${A0_DATA_DIR:-./client-data}/usr:/a0/usr
+      - ${A0_DATA_DIR:-./client-data}/tmp:/a0/tmp
+      - ${A0_DATA_DIR:-./client-data}/logs:/a0/logs
+      - ${A0_DATA_DIR:-./client-data}/knowledge:/a0/knowledge
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    restart: unless-stopped
+
+  governance-worker:
+    image: ${APP_IMAGE_NAME:-agentzero-governed}:latest
+    container_name: agentzero-governance-worker
+    command: ["/opt/venv-a0/bin/python", "-m", "python.governance_runtime.temporal_worker"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agentzero}:${POSTGRES_PASSWORD:-agentzero}@postgres:5432/${POSTGRES_DB:-agentzero}
+      GOV_PERSIST_BACKEND: postgres
+      GOV_DUAL_WRITE: "false"
+      GOV_TEMPORAL_ENABLED: "true"
+      TEMPORAL_HOST: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: agentzero-governance
+      PYTHONPATH: /a0
+    volumes:
+      - ${A0_DATA_DIR:-./client-data}/usr:/a0/usr
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

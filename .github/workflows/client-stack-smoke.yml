@@ -1,0 +1,42 @@
+name: client-stack-smoke
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - feature/**
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Docker
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Build and start client stack
+        run: docker compose -f docker-compose.client.yml up -d --build
+
+      - name: Run client smoke test
+        run: python3 tools/smoke_client_stack.py
+
+      - name: Dump compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.client.yml logs --no-color > client-stack-compose.log || true
+
+      - name: Upload compose logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-stack-compose-logs
+          path: client-stack-compose.log
+
+      - name: Tear down client stack
+        if: always()
+        run: docker compose -f docker-compose.client.yml down -v

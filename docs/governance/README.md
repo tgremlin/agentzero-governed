@@ -64,6 +64,39 @@ Guardrails include:
 ## Known Limitations (MVP)
 
 - Same-user approvals only.
-- Durable storage is file-based in current phase; Postgres system-of-record is deferred.
-- Temporal orchestration integration is deferred.
+- Postgres persistence is behind feature flags and optional dependency.
 - In offline dev environments, local pytest setup may fail due dependency fetch limits; CI remains verification source of truth.
+
+## Persistence Flags
+
+- `GOV_PERSIST_BACKEND=file|postgres` (default `file`)
+- `GOV_DUAL_WRITE=true|false` (default `false`)
+- `DATABASE_URL=postgresql+psycopg://...` (required when backend is `postgres`)
+- `GOV_TEMPORAL_ENABLED=true|false` (default `false`)
+- `TEMPORAL_HOST=temporal:7233`
+- `TEMPORAL_NAMESPACE=default`
+- `TEMPORAL_TASK_QUEUE=agentzero-governance`
+
+## Client Deployment (Temporal + Postgres)
+
+Use the repo-native client stack to run governance with Temporal orchestration and Postgres persistence:
+
+```bash
+cp .env.client.example .env
+./start.sh
+python3 tools/smoke_client_stack.py
+```
+
+Persistent data root:
+- Configure `A0_DATA_DIR` in `.env` (default `./client-data`).
+- If `/opt/agentzero/data` exists, `start.sh` auto-uses it for backwards compatibility.
+
+Expected smoke result:
+- `{"ok": true, ...}` from `tools/smoke_client_stack.py`
+- Governance APIs return `temporal: true` and `persisted: true`
+
+Stop stack:
+
+```bash
+./stop.sh
+```
