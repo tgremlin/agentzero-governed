@@ -52,3 +52,4 @@ python-socketio>=5.14.2
 uvicorn>=0.38.0
 wsproto>=1.2.0
 psycopg[binary]>=3.2.10
+temporalio>=1.9,<2.0

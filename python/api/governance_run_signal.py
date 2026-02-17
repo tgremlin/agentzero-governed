@@ -25,7 +25,7 @@ class GovernanceRunSignal(ApiHandler):
                 mimetype="application/json",
             )
 
-        result = signal_governed_run(run_id=run_id, signal=signal, payload=payload)
+        result = await signal_governed_run(run_id=run_id, signal=signal, payload=payload)
         return {
             "ok": True,
             **result,

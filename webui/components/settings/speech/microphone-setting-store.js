@@ -16,6 +16,14 @@ const model = {
     },
 
     async loadDevices() {
+        // MediaDevices is only available in secure contexts (HTTPS/localhost).
+        if (!globalThis.isSecureContext || !navigator.mediaDevices || typeof navigator.mediaDevices.enumerateDevices !== "function") {
+            console.warn("MediaDevices API unavailable (requires HTTPS/localhost).");
+            this.devices = [];
+            this.selectedDevice = "";
+            return;
+        }
+
         // Get media devices
         const devices = await navigator.mediaDevices.enumerateDevices();
         // Filter for audio input (microphones)
@@ -31,6 +39,12 @@ const model = {
     
     // request microphone permission and poll for devices
     async requestPermission() {
+        if (!globalThis.isSecureContext || !navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+            console.warn("Cannot request microphone permission: MediaDevices API unavailable.");
+            this.requestingPermission = false;
+            return;
+        }
+
         // set flag first so UI can update immediately
         clearTimeout(this.permissionTimer);
         this.requestingPermission = true;

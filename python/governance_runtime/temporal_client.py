@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 from typing import Any
+
+try:
+    from temporalio.client import Client
+except Exception:  # pragma: no cover - optional in environments without Temporal SDK
+    Client = None  # type: ignore[assignment]
 
 from python.governance_runtime.repos import get_postgres_repo
 
@@ -12,6 +18,9 @@ _RUN_STATUS_BY_SIGNAL = {
     "resume": "running",
     "cancel": "cancelled",
 }
+
+_CLIENT: Any = None
+_CLIENT_LOCK = asyncio.Lock()
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -25,7 +34,24 @@ def is_temporal_enabled() -> bool:
     return _env_flag("GOV_TEMPORAL_ENABLED", default=False)
 
 
-def start_governed_run(*, context_id: str, project_name: str | None) -> dict[str, Any]:
+async def _get_client() -> Client:
+    if Client is None:
+        raise RuntimeError("temporalio is not installed")
+    global _CLIENT
+    if _CLIENT is not None:
+        return _CLIENT
+
+    async with _CLIENT_LOCK:
+        if _CLIENT is not None:
+            return _CLIENT
+
+        host = os.environ.get("TEMPORAL_HOST", "temporal:7233")
+        namespace = os.environ.get("TEMPORAL_NAMESPACE", "default")
+        _CLIENT = await Client.connect(host, namespace=namespace)
+        return _CLIENT
+
+
+def _db_fallback_start(*, context_id: str, project_name: str | None) -> dict[str, Any]:
     repo = get_postgres_repo()
     run_id = str(uuid.uuid4())
     persisted = False
@@ -49,10 +75,11 @@ def start_governed_run(*, context_id: str, project_name: str | None) -> dict[str
         "run_id": run_id,
         "status": "queued",
         "persisted": persisted,
+        "temporal": False,
     }
 
 
-def signal_governed_run(*, run_id: str, signal: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+def _db_fallback_signal(*, run_id: str, signal: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     sig = str(signal or "").strip().lower()
     if sig not in {"pause", "resume", "cancel"}:
         raise ValueError(f"unsupported signal: {signal}")
@@ -81,4 +108,58 @@ def signal_governed_run(*, run_id: str, signal: str, payload: dict[str, Any] | N
         "signal": sig,
         "status": status,
         "persisted": persisted,
+        "temporal": False,
     }
+
+
+async def start_governed_run(*, context_id: str, project_name: str | None) -> dict[str, Any]:
+    run_id = str(uuid.uuid4())
+    queue = os.environ.get("TEMPORAL_TASK_QUEUE", "agentzero-governance")
+
+    try:
+        from python.governance_runtime.temporal_workflow import GovernedRunInput, GovernedRunWorkflow
+
+        client = await _get_client()
+        await client.start_workflow(
+            GovernedRunWorkflow.run,
+            GovernedRunInput(run_id=run_id, context_id=context_id, project_name=project_name),
+            id=run_id,
+            task_queue=queue,
+        )
+        return {
+            "run_id": run_id,
+            "status": "queued",
+            "persisted": True,
+            "temporal": True,
+        }
+    except Exception:
+        return _db_fallback_start(context_id=context_id, project_name=project_name)
+
+
+async def signal_governed_run(
+    *, run_id: str, signal: str, payload: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    sig = str(signal or "").strip().lower()
+    if sig not in {"pause", "resume", "cancel"}:
+        raise ValueError(f"unsupported signal: {signal}")
+
+    try:
+        from python.governance_runtime.temporal_workflow import GovernedRunWorkflow
+
+        client = await _get_client()
+        handle = client.get_workflow_handle(run_id)
+        if sig == "pause":
+            await handle.signal(GovernedRunWorkflow.pause, payload or {})
+        elif sig == "resume":
+            await handle.signal(GovernedRunWorkflow.resume, payload or {})
+        else:
+            await handle.signal(GovernedRunWorkflow.cancel, payload or {})
+        return {
+            "run_id": run_id,
+            "signal": sig,
+            "status": _RUN_STATUS_BY_SIGNAL[sig],
+            "persisted": True,
+            "temporal": True,
+        }
+    except Exception:
+        return _db_fallback_signal(run_id=run_id, signal=sig, payload=payload)

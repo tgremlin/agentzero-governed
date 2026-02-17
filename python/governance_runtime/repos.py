@@ -208,6 +208,27 @@ class GovernancePostgresRepo:
             conn.commit()
         return run_id
 
+    def ensure_run(
+        self,
+        *,
+        run_id: str,
+        context_id: str,
+        project_name: str | None = None,
+        status: str = "queued",
+    ) -> None:
+        self._ensure_schema()
+        with connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO governance.runs (id, context_id, project_name, status)
+                    VALUES (%s::uuid, %s, %s, %s)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    (run_id, context_id, project_name, status),
+                )
+            conn.commit()
+
     def update_run_status(self, run_id: str, status: str) -> None:
         self._ensure_schema()
         with connection() as conn:

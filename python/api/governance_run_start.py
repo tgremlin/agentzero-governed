@@ -16,7 +16,7 @@ class GovernanceRunStart(ApiHandler):
         context = self.use_context(ctxid)
         project_name = projects.get_context_project_name(context)
 
-        result = start_governed_run(context_id=context.id, project_name=project_name)
+        result = await start_governed_run(context_id=context.id, project_name=project_name)
         return {
             "ok": True,
             "context_id": context.id,
