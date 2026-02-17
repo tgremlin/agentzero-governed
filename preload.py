@@ -1,7 +1,6 @@
 import asyncio
 from python.helpers import runtime, whisper, settings
 from python.helpers.print_style import PrintStyle
-from python.helpers import kokoro_tts
 import models
 
 
@@ -33,6 +32,7 @@ async def preload():
         async def preload_kokoro():
             if set["tts_kokoro"]:
                 try:
+                    from python.helpers import kokoro_tts
                     return await kokoro_tts.preload()
                 except Exception as e:
                     PrintStyle().error(f"Error in preload_kokoro: {e}")

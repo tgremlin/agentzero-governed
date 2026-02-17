@@ -1,0 +1,16 @@
+FROM agent0ai/agent-zero:latest
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /a0
+
+COPY . /a0
+RUN /opt/pyenv/versions/3.12.4/bin/python -m pip install --no-cache-dir \
+    -r /a0/requirements.e2e.txt \
+    -r /a0/requirements.dev.txt
+
+EXPOSE 5000
+
+CMD ["/opt/pyenv/versions/3.12.4/bin/python", "run_ui.py"]
