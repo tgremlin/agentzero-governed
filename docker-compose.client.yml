@@ -72,10 +72,10 @@ services:
     ports:
       - "${APP_PORT:-50001}:5000"
     volumes:
-      - ./usr:/a0/usr
-      - ./tmp:/a0/tmp
-      - ./logs:/a0/logs
-      - ./knowledge:/a0/knowledge
+      - ${A0_DATA_DIR:-./client-data}/usr:/a0/usr
+      - ${A0_DATA_DIR:-./client-data}/tmp:/a0/tmp
+      - ${A0_DATA_DIR:-./client-data}/logs:/a0/logs
+      - ${A0_DATA_DIR:-./client-data}/knowledge:/a0/knowledge
     depends_on:
       postgres:
         condition: service_healthy
@@ -97,7 +97,7 @@ services:
       TEMPORAL_TASK_QUEUE: agentzero-governance
       PYTHONPATH: /a0
     volumes:
-      - ./usr:/a0/usr
+      - ${A0_DATA_DIR:-./client-data}/usr:/a0/usr
     depends_on:
       postgres:
         condition: service_healthy

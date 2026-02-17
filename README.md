@@ -79,6 +79,11 @@ cp .env.client.example .env
 python3 tools/smoke_client_stack.py
 ```
 
+Data persistence:
+- Set `A0_DATA_DIR` in `.env` to control where `usr/tmp/logs/knowledge` live.
+- Default is `./client-data`.
+- Existing installs at `/opt/agentzero/data` are auto-detected by `start.sh`.
+
 Services:
 - App: `http://127.0.0.1:50001`
 - Temporal UI: `http://127.0.0.1:8233`

@@ -87,6 +87,10 @@ cp .env.client.example .env
 python3 tools/smoke_client_stack.py
 ```
 
+Persistent data root:
+- Configure `A0_DATA_DIR` in `.env` (default `./client-data`).
+- If `/opt/agentzero/data` exists, `start.sh` auto-uses it for backwards compatibility.
+
 Expected smoke result:
 - `{"ok": true, ...}` from `tools/smoke_client_stack.py`
 - Governance APIs return `temporal: true` and `persisted: true`
