@@ -6,7 +6,7 @@
   </script>
 </head>
 <body>
-  <div x-data x-init="$store.dataEvents.init()">
+  <div x-data x-init="if ($store.dataEvents && $store.dataEvents.init) { $store.dataEvents.init() }">
     <template x-if="$store.dataEvents">
       <div class="data-events-root">
         <div class="data-events-tabs">

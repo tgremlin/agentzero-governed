@@ -2,7 +2,14 @@ from python.helpers.api import ApiHandler, Request, Response
 
 
 class SystemTrace(ApiHandler):
+    @classmethod
+    def get_methods(cls) -> list[str]:
+        return ["GET", "POST"]
+
     async def process(self, input: dict, request: Request) -> dict | Response:
+        if request.method == "GET":
+            input = dict(request.args)
+
         limit = int(input.get("limit", 200) or 200)
         limit = max(1, min(limit, 5000))
         offset = int(input.get("offset", 0) or 0)

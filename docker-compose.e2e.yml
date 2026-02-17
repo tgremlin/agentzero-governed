@@ -31,6 +31,12 @@ services:
       GOV_TEMPORAL_ENABLED: false
       A0_SKIP_MISSING_MODULE_IMPORTS: "true"
       TOKENIZERS_PARALLELISM: false
+    ports:
+      - "50001:5000"
+    volumes:
+      - /opt/agentzero/data/usr:/a0/usr
+      - /opt/agentzero/data/tmp:/a0/tmp
+      - /mnt/storage/backups:/mnt/storage/backups
     depends_on:
       postgres:
         condition: service_healthy
