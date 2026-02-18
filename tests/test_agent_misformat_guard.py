@@ -50,6 +50,10 @@ def test_process_tools_breaks_after_repeated_misformat(monkeypatch):
     parse_failed = [e for e in emitted if e.get("type") == "llm.response.parse_failed"]
     assert len(parse_failed) == 3
     assert parse_failed[-1]["misformat_streak"] == 3
+    run_outcomes = [e for e in emitted if e.get("type") == "run.outcome"]
+    assert len(run_outcomes) == 1
+    assert run_outcomes[0]["outcome"] == "failure"
+    assert run_outcomes[0]["reason"] == "parse_failed_exhausted"
 
 
 def test_process_tools_resets_misformat_streak_on_valid_tool_request(monkeypatch):
