@@ -2,6 +2,7 @@ import asyncio
 
 from agent import Agent
 from python.helpers import extract_tools
+from python.helpers import governance_gate
 
 
 class _DummyLog:
@@ -31,6 +32,8 @@ def _build_agent_for_process_tools() -> Agent:
 
 def test_process_tools_breaks_after_repeated_misformat(monkeypatch):
     monkeypatch.setattr(extract_tools, "json_parse_dirty", lambda _msg: None)
+    emitted: list[dict] = []
+    monkeypatch.setattr(governance_gate, "emit_governance_runtime_event", lambda _agent, event: emitted.append(event))
     agent = _build_agent_for_process_tools()
 
     # First two malformed responses should continue.
@@ -44,11 +47,16 @@ def test_process_tools_breaks_after_repeated_misformat(monkeypatch):
 
     # Streak resets after break to avoid sticky state.
     assert agent.get_data(Agent.DATA_NAME_MISFORMAT_STREAK) == 0
+    parse_failed = [e for e in emitted if e.get("type") == "llm.response.parse_failed"]
+    assert len(parse_failed) == 3
+    assert parse_failed[-1]["misformat_streak"] == 3
 
 
 def test_process_tools_resets_misformat_streak_on_valid_tool_request(monkeypatch):
     agent = _build_agent_for_process_tools()
     agent.set_data(Agent.DATA_NAME_MISFORMAT_STREAK, 2)
+    emitted: list[dict] = []
+    monkeypatch.setattr(governance_gate, "emit_governance_runtime_event", lambda _agent, event: emitted.append(event))
 
     # Return a parseable request with unknown tool so method takes structured path.
     monkeypatch.setattr(
@@ -65,3 +73,4 @@ def test_process_tools_resets_misformat_streak_on_valid_tool_request(monkeypatch
         "misformat streak reset after 2 malformed output(s)" in content
         for _type, content in agent.context.log.entries
     )
+    assert any(e.get("type") == "llm.response.parsed" for e in emitted)

@@ -34,6 +34,10 @@ from typing import Callable
 from python.helpers.localization import Localization
 from python.helpers.extension import call_extensions
 from python.helpers.errors import RepairableException
+from python.governance_runtime.event_taxonomy import (
+    EVENT_LLM_RESPONSE_PARSED,
+    EVENT_LLM_RESPONSE_PARSE_FAILED,
+)
 
 
 class AgentContextType(Enum):
@@ -854,6 +858,8 @@ class Agent:
         tool_request = extract_tools.json_parse_dirty(msg)
 
         if tool_request is not None:
+            from python.helpers.governance_gate import emit_governance_runtime_event
+
             # valid structured output resets misformat streak
             previous_streak = int(self.get_data(Agent.DATA_NAME_MISFORMAT_STREAK) or 0)
             self.set_data(Agent.DATA_NAME_MISFORMAT_STREAK, 0)
@@ -869,6 +875,16 @@ class Agent:
             tool_args = tool_request.get("tool_args", tool_request.get("args", {}))
             if not isinstance(tool_args, dict):
                 tool_args = {}
+            emit_governance_runtime_event(
+                self,
+                {
+                    "type": EVENT_LLM_RESPONSE_PARSED,
+                    "tool_name": str(raw_tool_name or ""),
+                    "parsed": True,
+                    "arg_keys": sorted(str(k) for k in tool_args.keys()),
+                    "source": "agent.process_tools",
+                },
+            )
 
             tool_name = raw_tool_name  # Initialize tool_name with raw_tool_name
             tool_method = None  # Initialize tool_method
@@ -996,8 +1012,20 @@ class Agent:
                     type="warning", content=f"{self.agent_name}: {error_detail}"
                 )
         else:
+            from python.helpers.governance_gate import emit_governance_runtime_event
+
             misformat_streak = int(self.get_data(Agent.DATA_NAME_MISFORMAT_STREAK) or 0) + 1
             self.set_data(Agent.DATA_NAME_MISFORMAT_STREAK, misformat_streak)
+            emit_governance_runtime_event(
+                self,
+                {
+                    "type": EVENT_LLM_RESPONSE_PARSE_FAILED,
+                    "parsed": False,
+                    "reason": "no_valid_tool_request",
+                    "misformat_streak": misformat_streak,
+                    "source": "agent.process_tools",
+                },
+            )
             warning_msg_misformat = self.read_prompt("fw.msg_misformat.md")
             self.hist_add_warning(warning_msg_misformat)
             PrintStyle(font_color="red", padding=True).print(warning_msg_misformat)
