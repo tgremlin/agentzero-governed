@@ -3,6 +3,8 @@ from __future__ import annotations
 
 EVENT_RUN_STARTED = "run.started"
 EVENT_RUN_OUTCOME = "run.outcome"
+EVENT_LLM_REQUEST_SENT = "llm.request.sent"
+EVENT_LLM_RESPONSE_RECEIVED = "llm.response.received"
 EVENT_LLM_RESPONSE_PARSED = "llm.response.parsed"
 EVENT_LLM_RESPONSE_PARSE_FAILED = "llm.response.parse_failed"
 EVENT_TOOL_CALL_REQUESTED = "tool.call.requested"
