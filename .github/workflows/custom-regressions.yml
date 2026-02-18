@@ -1,0 +1,53 @@
+name: custom-regressions
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - feature/**
+
+jobs:
+  regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Docker
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Build app container
+        run: docker compose -f docker-compose.client.yml up -d --build app
+
+      - name: Install pytest in app container
+        run: |
+          docker compose -f docker-compose.client.yml exec -T app /opt/venv-a0/bin/pip install pytest pytest-asyncio
+
+      - name: Run custom regression tests in app container
+        run: |
+          docker compose -f docker-compose.client.yml exec -T app /opt/venv-a0/bin/python -m pytest -q \
+            /a0/tests/test_extract_tools_minimax.py \
+            /a0/tests/test_scheduler_recovery.py \
+            /a0/tests/test_governance_input.py \
+            /a0/tests/test_scheduler_manifest.py \
+            /a0/tests/test_slack_socket_listener.py \
+            /a0/tests/test_gh_tool.py
+
+      - name: Dump compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.client.yml logs --no-color > custom-regressions-compose.log || true
+
+      - name: Upload compose logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: custom-regressions-compose-logs
+          path: custom-regressions-compose.log
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.client.yml down -v
