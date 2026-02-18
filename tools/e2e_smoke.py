@@ -107,7 +107,9 @@ def main() -> int:
         headers=auth_headers,
     )
     _assert(status == 200 and trace.get("ok") is True, f"/system_trace failed: {status} {trace}")
-    _assert(trace.get("coming_soon") is True, "/system_trace missing coming_soon=true")
+    _assert(trace.get("coming_soon") is False, "/system_trace should be active, expected coming_soon=false")
+    _assert(any(item.get("key") == "dataset_exports" for item in trace.get("types", [])), "/system_trace missing dataset_exports type")
+    _assert(isinstance(trace.get("summary"), dict), "/system_trace missing summary payload")
 
     status, update = _request_json(
         opener,
