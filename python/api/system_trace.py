@@ -36,5 +36,6 @@ class SystemTrace(ApiHandler):
                 {"key": "trace_scores", "label": "Trace Scores", "status": "planned"},
                 {"key": "dataset_exports", "label": "Dataset Exports", "status": "active"},
                 {"key": "training_decisions", "label": "Training Decisions", "status": "active"},
+                {"key": "training_lifecycle", "label": "Training Lifecycle", "status": "active"},
             ],
         }
