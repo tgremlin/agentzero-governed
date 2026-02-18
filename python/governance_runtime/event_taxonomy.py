@@ -6,6 +6,7 @@ EVENT_TOOL_CALL_REQUESTED = "tool.call.requested"
 EVENT_POLICY_CHECK_DECISION = "policy.check.decision"
 EVENT_APPROVAL_REQUESTED = "approval.requested"
 EVENT_APPROVAL_RESOLVED = "approval.resolved"
+EVENT_SECURITY_SECRET_SCAN_FAILED = "security.secret_scan_failed"
 
 DECISION_ALLOW = "allow"
 DECISION_DENY = "deny"

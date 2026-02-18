@@ -123,6 +123,24 @@ CREATE INDEX IF NOT EXISTS ix_governance_audit_events_run ON governance.audit_ev
 CREATE INDEX IF NOT EXISTS ix_governance_audit_events_type_ts ON governance.audit_events(event_type, observed_at);
 CREATE INDEX IF NOT EXISTS ix_governance_audit_events_event_id ON governance.audit_events(event_id);
 
+CREATE OR REPLACE FUNCTION governance.enforce_secret_payload_suppression()
+RETURNS trigger AS $$
+BEGIN
+  IF NEW.contains_secrets THEN
+    IF NEW.payload_json <> '{}'::jsonb AND NEW.payload_json <> '{"suppressed": true}'::jsonb THEN
+      RAISE EXCEPTION 'secret payload must be suppressed';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_governance_audit_secret_payload_guard ON governance.audit_events;
+CREATE TRIGGER trg_governance_audit_secret_payload_guard
+BEFORE INSERT ON governance.audit_events
+FOR EACH ROW
+EXECUTE FUNCTION governance.enforce_secret_payload_suppression();
+
 CREATE TABLE IF NOT EXISTS governance.policy_decisions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   event_id TEXT NOT NULL,

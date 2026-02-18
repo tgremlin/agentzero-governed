@@ -8,6 +8,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from python.governance_runtime.event_taxonomy import EVENT_SECURITY_SECRET_SCAN_FAILED
+
 
 SCHEMA_VERSION = "1.0.0"
 TAXONOMY_VERSION = "2026.02.18"
@@ -161,7 +163,19 @@ def build_audit_event(
     event_type = str(base_event.get("type", "governance.event")).strip() or "governance.event"
     observed_at = str(base_event.get("created_at") or dt.datetime.now(dt.timezone.utc).isoformat())
     raw_payload = dict(base_event)
-    sanitized = sanitize_payload(raw_payload)
+    scan_failed = False
+    try:
+        sanitized = sanitize_payload(raw_payload)
+    except Exception:
+        # Fail closed: suppress payload and classify as secret-bearing so no unsafe payload is persisted.
+        scan_failed = True
+        sanitized = SanitizationResult(
+            payload={"suppressed": True},
+            contains_secrets=True,
+            contains_pii=False,
+            redaction_ratio=1.0,
+        )
+        event_type = EVENT_SECURITY_SECRET_SCAN_FAILED
 
     payload_json = {"suppressed": True} if sanitized.contains_secrets else sanitized.payload
     payload_hash = sha256_text(_stable_json(payload_json))
@@ -206,4 +220,5 @@ def build_audit_event(
         "integrity_chain_id": f"{tenant_id}:{run_id}",
         "prev_event_hash": prev_event_hash,
         "event_hash": event_hash,
+        "scan_failed": scan_failed,
     }
