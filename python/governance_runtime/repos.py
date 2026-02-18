@@ -168,6 +168,39 @@ def _resolve_audit_sequence_number(prev_seq: int, candidate_sequence: Any) -> in
     return prev_seq + 1
 
 
+def _build_policy_decision_record(
+    *,
+    event: dict[str, Any],
+    audit_event: dict[str, Any],
+) -> dict[str, Any] | None:
+    if str(audit_event.get("event_type", "")).strip() != "policy.check.decision":
+        return None
+
+    decision = str(event.get("decision", "")).strip().lower()
+    if decision not in {"allow", "deny", "require_approval", "transform", "redact", "route", "quarantine"}:
+        return None
+
+    reason_codes_raw = event.get("reason_codes")
+    reason_codes: list[str] = []
+    if isinstance(reason_codes_raw, list):
+        reason_codes = [str(x).strip() for x in reason_codes_raw if str(x).strip()]
+
+    policy_name = str(event.get("policy_name", "governance_gate")).strip() or "governance_gate"
+    policy_version = str(event.get("policy_version", "v1")).strip() or "v1"
+
+    return {
+        "event_id": str(audit_event.get("event_id", "")),
+        "tenant_id": str(audit_event.get("tenant_id", "")),
+        "run_id": str(audit_event.get("run_id", "")),
+        "sequence_number": int(audit_event.get("sequence_number", 0)),
+        "policy_name": policy_name,
+        "policy_version": policy_version,
+        "decision": decision,
+        "reason_codes": reason_codes,
+        "observed_at": str(audit_event.get("observed_at", "")),
+    }
+
+
 class GovernancePostgresRepo:
     def __init__(self) -> None:
         self._ddl_lock = threading.Lock()
@@ -376,6 +409,28 @@ class GovernancePostgresRepo:
                         audit_event["event_hash"],
                     ),
                 )
+
+                policy_record = _build_policy_decision_record(event=event, audit_event=audit_event)
+                if policy_record is not None:
+                    cur.execute(
+                        """
+                        INSERT INTO governance.policy_decisions (
+                          event_id, tenant_id, run_id, sequence_number,
+                          policy_name, policy_version, decision, reason_codes, observed_at
+                        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::timestamptz)
+                        """,
+                        (
+                            policy_record["event_id"],
+                            policy_record["tenant_id"],
+                            policy_record["run_id"],
+                            policy_record["sequence_number"],
+                            policy_record["policy_name"],
+                            policy_record["policy_version"],
+                            policy_record["decision"],
+                            policy_record["reason_codes"],
+                            policy_record["observed_at"],
+                        ),
+                    )
             conn.commit()
 
     def create_run(self, context_id: str, project_name: str | None = None, status: str = "queued") -> str:
