@@ -130,3 +130,11 @@ Behavior:
 - DM events map to one persistent Agent Zero chat per Slack user.
 - Mention events map to one persistent Agent Zero chat per Slack thread.
 - Context mapping is persisted at `usr/slack/socket_context_map.json`.
+
+## Tracing And Training Docs
+
+- PRD: `docs/governance/tracing-prd.md`
+- Success metrics: `docs/governance/tracing-success-metrics.md`
+- Phase 1 (foundation): `docs/governance/tracing-phase-1-foundation.md`
+- Phase 2 (curation): `docs/governance/tracing-phase-2-curation.md`
+- Phase 3 (training ops): `docs/governance/tracing-phase-3-training-ops.md`
