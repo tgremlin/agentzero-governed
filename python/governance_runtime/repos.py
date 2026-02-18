@@ -157,6 +157,17 @@ def is_dual_write_enabled() -> bool:
     return _env_flag("GOV_DUAL_WRITE", default=False)
 
 
+def _resolve_audit_sequence_number(prev_seq: int, candidate_sequence: Any) -> int:
+    """Return a monotonic sequence number for audit_events unique key."""
+    try:
+        explicit_seq = int(candidate_sequence) if candidate_sequence is not None else None
+    except Exception:
+        explicit_seq = None
+    if explicit_seq is not None and explicit_seq > prev_seq:
+        return explicit_seq
+    return prev_seq + 1
+
+
 class GovernancePostgresRepo:
     def __init__(self) -> None:
         self._ddl_lock = threading.Lock()
@@ -297,11 +308,7 @@ class GovernancePostgresRepo:
                 prev_seq = int(prev[0]) if prev else 0
                 prev_hash = str(prev[1]) if prev else "sha256:0"
 
-                try:
-                    explicit_seq = int(sequence_number) if sequence_number is not None else None
-                except Exception:
-                    explicit_seq = None
-                audit_seq = explicit_seq if explicit_seq and explicit_seq > 0 else prev_seq + 1
+                audit_seq = _resolve_audit_sequence_number(prev_seq=prev_seq, candidate_sequence=sequence_number)
 
                 audit_event = build_audit_event(
                     base_event=event,
