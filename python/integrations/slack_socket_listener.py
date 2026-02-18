@@ -284,11 +284,12 @@ class SlackSocketListener:
                 payload = envelope.get("payload", {})
                 if not isinstance(payload, dict):
                     continue
-                if payload.get("type") != "events_api":
-                    continue
                 event = payload.get("event", {})
                 if not isinstance(event, dict):
                     continue
+                PrintStyle(font_color="cyan").print(
+                    f"Slack events_api received: type={event.get('type')} channel={event.get('channel')} user={event.get('user')}"
+                )
                 asyncio.create_task(self._handle_event(api, event))
 
     async def _handle_event(self, api: SlackApi, event: dict[str, Any]) -> None:
@@ -378,6 +379,9 @@ class SlackSocketListener:
                 "thread_ts": thread_ts,
                 "agent_message": cleaned or text,
             }
+        PrintStyle(font_color="yellow").print(
+            f"Slack event ignored: type={event_type} subtype={subtype} channel_type={channel_type} allow_dm={allow_dm} allow_mentions={allow_mentions}"
+        )
         return None
 
     def _strip_bot_mentions(self, text: str) -> str:
