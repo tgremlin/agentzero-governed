@@ -73,7 +73,9 @@ def test_postgres_backend_writes_repo_only_when_dual_write_disabled(monkeypatch,
 
     assert result["decision"] == "require_approval"
     assert len(fake_repo.upsert_calls) == 1
-    assert len(fake_repo.events) == 1
+    event_types = [str(e.get("type", "")) for e in fake_repo.events]
+    assert "approval.requested" in event_types
+    assert "policy.check.decision" in event_types
     assert not (tmp_path / "approvals").exists()
 
 
