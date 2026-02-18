@@ -24,7 +24,32 @@ exit 0
     return fake
 
 
-def _run_start_script(tmp_path: Path, *, image_exists: bool, force_rebuild: bool) -> str:
+def _make_fake_curl(bin_dir: Path) -> Path:
+    fake = bin_dir / "curl"
+    fake.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+count_file="${FAKE_CURL_COUNT_FILE}"
+if [[ ! -f "${count_file}" ]]; then
+  echo 0 > "${count_file}"
+fi
+count="$(cat "${count_file}")"
+count=$((count + 1))
+echo "${count}" > "${count_file}"
+if [[ "${count}" -le "${FAKE_CURL_FAILS:-0}" ]]; then
+  exit 1
+fi
+exit 0
+""",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    return fake
+
+
+def _run_start_script(
+    tmp_path: Path, *, image_exists: bool, force_rebuild: bool, curl_fails: int = 0
+) -> str:
     repo = tmp_path / "repo"
     repo.mkdir()
     shutil.copy("/a0/start.sh", repo / "start.sh")
@@ -33,13 +58,18 @@ def _run_start_script(tmp_path: Path, *, image_exists: bool, force_rebuild: bool
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     _make_fake_docker(bin_dir)
+    _make_fake_curl(bin_dir)
 
     log_path = tmp_path / "docker.log"
+    curl_count_path = tmp_path / "curl.count"
     env = os.environ.copy()
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["FAKE_DOCKER_LOG"] = str(log_path)
     env["FAKE_IMAGE_EXISTS"] = "1" if image_exists else "0"
+    env["FAKE_CURL_COUNT_FILE"] = str(curl_count_path)
+    env["FAKE_CURL_FAILS"] = str(curl_fails)
     env["A0_DATA_DIR"] = str(tmp_path / "client-data")
+    env["APP_READY_TIMEOUT_SECONDS"] = "5"
     if force_rebuild:
         env["FORCE_REBUILD"] = "true"
 
@@ -72,3 +102,9 @@ def test_start_script_honors_force_rebuild(tmp_path: Path):
     log = _run_start_script(tmp_path, image_exists=True, force_rebuild=True)
     assert "compose -f docker-compose.client.yml build app" in log
     assert "compose -f docker-compose.client.yml up -d --no-build" in log
+
+
+def test_start_script_waits_for_readiness(tmp_path: Path):
+    _run_start_script(tmp_path, image_exists=True, force_rebuild=False, curl_fails=2)
+    count = int((tmp_path / "curl.count").read_text(encoding="utf-8").strip())
+    assert count >= 3
