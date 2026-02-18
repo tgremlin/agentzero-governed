@@ -7,6 +7,7 @@ from typing import Any
 from temporalio import activity, workflow
 
 with workflow.unsafe.imports_passed_through():
+    from python.governance_runtime.event_taxonomy import EVENT_RUN_OUTCOME
     from python.governance_runtime.repos import get_postgres_repo
 
 
@@ -59,6 +60,22 @@ async def persist_run_signal(
         }
     )
 
+@activity.defn
+async def persist_run_outcome(run_id: str, status: str, outcome: str) -> None:
+    repo = get_postgres_repo()
+    if repo is None:
+        return
+
+    repo.append_event(
+        {
+            "type": EVENT_RUN_OUTCOME,
+            "run_id": run_id,
+            "status": status,
+            "outcome": outcome,
+            "source": "temporal_workflow",
+        }
+    )
+
 
 @workflow.defn
 class GovernedRunWorkflow:
@@ -94,6 +111,12 @@ class GovernedRunWorkflow:
                     args=[input_data.run_id, signal, self._status, payload],
                     start_to_close_timeout=timedelta(seconds=15),
                 )
+                if signal == "cancel":
+                    await workflow.execute_activity(
+                        persist_run_outcome,
+                        args=[input_data.run_id, self._status, "cancelled"],
+                        start_to_close_timeout=timedelta(seconds=15),
+                    )
 
         return {"run_id": input_data.run_id, "status": self._status}
 

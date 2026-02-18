@@ -11,6 +11,7 @@ except Exception:  # pragma: no cover - optional in environments without Tempora
     Client = None  # type: ignore[assignment]
 
 from python.governance_runtime.repos import get_postgres_repo
+from python.governance_runtime.event_taxonomy import EVENT_RUN_OUTCOME
 
 
 _RUN_STATUS_BY_SIGNAL = {
@@ -99,6 +100,16 @@ def _db_fallback_signal(*, run_id: str, signal: str, payload: dict[str, Any] | N
                     "payload": payload or {},
                 }
             )
+            if sig == "cancel":
+                repo.append_event(
+                    {
+                        "type": EVENT_RUN_OUTCOME,
+                        "run_id": run_id,
+                        "outcome": "cancelled",
+                        "status": status,
+                        "source": "temporal_client_fallback",
+                    }
+                )
             persisted = True
         except Exception:
             persisted = False
