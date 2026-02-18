@@ -94,6 +94,16 @@ Services:
 - App: `http://127.0.0.1:50001`
 - Temporal UI: `http://127.0.0.1:8233`
 
+Release bundle (installer prep):
+
+```bash
+echo "0.1.0" > VERSION
+./tools/package_release.sh
+ls -lh dist/agentzero-governed-v0.1.0.tar.gz dist/agentzero-governed-v0.1.0.sha256
+```
+
+CI can build the same artifact via GitHub Actions workflow `release-bundle` (manual `workflow_dispatch` input: `version`).
+
 Stop:
 
 ```bash

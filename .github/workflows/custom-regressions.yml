@@ -23,10 +23,6 @@ jobs:
       - name: Build app container
         run: docker compose -f docker-compose.client.yml up -d --build app
 
-      - name: Install pytest in app container
-        run: |
-          docker compose -f docker-compose.client.yml exec -T app /opt/venv-a0/bin/pip install pytest pytest-asyncio
-
       - name: Run custom regression tests in app container
         run: |
           docker compose -f docker-compose.client.yml exec -T app /opt/venv-a0/bin/python -m pytest -q \
@@ -35,7 +31,8 @@ jobs:
             /a0/tests/test_governance_input.py \
             /a0/tests/test_scheduler_manifest.py \
             /a0/tests/test_slack_socket_listener.py \
-            /a0/tests/test_gh_tool.py
+            /a0/tests/test_gh_tool.py \
+            /a0/tests/test_package_release.py
 
       - name: Dump compose logs on failure
         if: failure()
