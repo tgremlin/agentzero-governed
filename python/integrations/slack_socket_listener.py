@@ -346,16 +346,28 @@ class SlackSocketListener:
         channel_type = str(event.get("channel_type", "")).strip()
         thread_ts = str(event.get("thread_ts", "")).strip() or str(event.get("ts", "")).strip()
         bot_id = str(event.get("bot_id", "")).strip()
+        client_msg_id = str(event.get("client_msg_id", "")).strip()
 
         if not channel or not thread_ts:
             return None
         if subtype:
             return None
         if bot_id:
+            PrintStyle(font_color="yellow").print("Slack event ignored: bot_id present")
             return None
         if not user:
+            PrintStyle(font_color="yellow").print("Slack event ignored: missing user")
             return None
         if self.bot_user_id and user == self.bot_user_id:
+            PrintStyle(font_color="yellow").print("Slack event ignored: from AgentZero bot user")
+            return None
+
+        # Prevent feedback loops by handling only human client messages.
+        # Bot/system generated messages generally do not carry client_msg_id.
+        if event_type in {"message", "app_mention"} and not client_msg_id:
+            PrintStyle(font_color="yellow").print(
+                "Slack event ignored: missing client_msg_id (likely bot/system echo)"
+            )
             return None
 
         allow_dm = self.config.mode in {"dm", "both"}
