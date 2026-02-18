@@ -358,6 +358,7 @@ class Agent:
     DATA_NAME_SUPERIOR = "_superior"
     DATA_NAME_SUBORDINATE = "_subordinate"
     DATA_NAME_CTX_WINDOW = "ctx_window"
+    DATA_NAME_MISFORMAT_STREAK = "_misformat_streak"
 
     def __init__(
         self, number: int, config: AgentConfig, context: AgentContext | None = None
@@ -853,6 +854,17 @@ class Agent:
         tool_request = extract_tools.json_parse_dirty(msg)
 
         if tool_request is not None:
+            # valid structured output resets misformat streak
+            previous_streak = int(self.get_data(Agent.DATA_NAME_MISFORMAT_STREAK) or 0)
+            self.set_data(Agent.DATA_NAME_MISFORMAT_STREAK, 0)
+            if previous_streak > 0:
+                self.context.log.log(
+                    type="info",
+                    content=(
+                        f"{self.agent_name}: misformat streak reset "
+                        f"after {previous_streak} malformed output(s)."
+                    ),
+                )
             raw_tool_name = tool_request.get("tool_name", tool_request.get("tool",""))  # Get the raw tool name
             tool_args = tool_request.get("tool_args", tool_request.get("args", {}))
             if not isinstance(tool_args, dict):
@@ -904,7 +916,10 @@ class Agent:
                     # Governance gate chokepoint (covers local + MCP tools)
                     from python.helpers.governance_gate import evaluate_tool_gate
 
-                    gate = evaluate_tool_gate(self, tool_name, tool_args or {})
+                    gate_args = dict(tool_args or {})
+                    if tool_method and "method" not in gate_args:
+                        gate_args["method"] = tool_method
+                    gate = evaluate_tool_gate(self, tool_name, gate_args)
                     decision = str(gate.get("decision", "allow"))
                     if decision == "require_approval":
                         # Pause-safe path: gate created approval + paused context, do not execute tool.
@@ -954,7 +969,10 @@ class Agent:
                 # Unknown tool behavior is governance-mode dependent.
                 from python.helpers.governance_gate import evaluate_tool_gate
 
-                gate = evaluate_tool_gate(self, tool_name, tool_args or {})
+                gate_args = dict(tool_args or {})
+                if tool_method and "method" not in gate_args:
+                    gate_args["method"] = tool_method
+                gate = evaluate_tool_gate(self, tool_name, gate_args)
                 decision = str(gate.get("decision", "allow"))
                 if decision == "require_approval":
                     return None
@@ -978,13 +996,32 @@ class Agent:
                     type="warning", content=f"{self.agent_name}: {error_detail}"
                 )
         else:
+            misformat_streak = int(self.get_data(Agent.DATA_NAME_MISFORMAT_STREAK) or 0) + 1
+            self.set_data(Agent.DATA_NAME_MISFORMAT_STREAK, misformat_streak)
             warning_msg_misformat = self.read_prompt("fw.msg_misformat.md")
             self.hist_add_warning(warning_msg_misformat)
             PrintStyle(font_color="red", padding=True).print(warning_msg_misformat)
             self.context.log.log(
                 type="warning",
-                content=f"{self.agent_name}: Message misformat, no valid tool request found.",
+                content=(
+                    f"{self.agent_name}: Message misformat, no valid tool request found. "
+                    f"streak={misformat_streak}"
+                ),
             )
+            # Prevent endless retries when the model repeatedly emits malformed output.
+            if misformat_streak >= 3:
+                loop_break_msg = (
+                    "Stopping due to repeated malformed tool outputs. "
+                    "Please retry or adjust prompt/tool instructions."
+                )
+                self.hist_add_warning(loop_break_msg)
+                PrintStyle(font_color="orange", padding=True).print(loop_break_msg)
+                self.context.log.log(
+                    type="warning",
+                    content=f"{self.agent_name}: {loop_break_msg}",
+                )
+                self.set_data(Agent.DATA_NAME_MISFORMAT_STREAK, 0)
+                return loop_break_msg
 
     async def handle_reasoning_stream(self, stream: str):
         await self.handle_intervention()

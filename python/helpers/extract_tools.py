@@ -1,10 +1,23 @@
-import re, os, importlib, importlib.util, inspect
+import re, os, importlib, importlib.util, inspect, html
 from types import ModuleType
 from typing import Any, Type, TypeVar
 from .dirty_json import DirtyJson
 from .files import get_abs_path, deabsolute_path
 import regex
 from fnmatch import fnmatch
+
+_MINIMAX_BLOCK_RE = re.compile(
+    r"<minimax:tool_call>\s*(?P<body>.*?)\s*</minimax:tool_call>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+_INVOKE_RE = re.compile(
+    r"<invoke\s+name=(?P<q>['\"])(?P<name>[^'\"]+)(?P=q)\s*>(?P<body>.*?)</invoke>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+_PARAM_RE = re.compile(
+    r"<parameter\s+name=(?P<q>['\"])(?P<name>[^'\"]+)(?P=q)\s*>(?P<value>.*?)</parameter>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
 
 def json_parse_dirty(json:str) -> dict[str,Any] | None:
     if not json or not isinstance(json, str):
@@ -16,9 +29,78 @@ def json_parse_dirty(json:str) -> dict[str,Any] | None:
             data = DirtyJson.parse_string(ext_json)
             if isinstance(data,dict): return data
         except Exception:
-            # If parsing fails, return None instead of crashing
-            return None
+            # Fall back to alternate tool-call formats.
+            pass
+
+    xml_data = extract_minimax_tool_call(json)
+    if xml_data:
+        return xml_data
     return None
+
+
+def extract_minimax_tool_call(content: str) -> dict[str, Any] | None:
+    if not content or not isinstance(content, str):
+        return None
+
+    body = content
+    block_match = _MINIMAX_BLOCK_RE.search(content)
+    if block_match:
+        body = block_match.group("body")
+
+    invoke_match = _INVOKE_RE.search(body)
+    if not invoke_match:
+        return None
+
+    tool_name = invoke_match.group("name").strip()
+    invoke_body = invoke_match.group("body")
+    if not tool_name:
+        return None
+
+    tool_args: dict[str, Any] = {}
+    for param_match in _PARAM_RE.finditer(invoke_body):
+        key = param_match.group("name").strip()
+        if not key:
+            continue
+        raw_value = param_match.group("value")
+        tool_args[key] = _coerce_minimax_param_value(raw_value)
+
+    return {"tool_name": tool_name, "tool_args": tool_args}
+
+
+def _coerce_minimax_param_value(value: str) -> Any:
+    text = html.unescape(value or "").strip()
+    if not text:
+        return ""
+
+    # Handle common MiniMax malformed values like python"
+    if text.endswith('"') and text.count('"') % 2 == 1 and not text.startswith('"'):
+        text = text[:-1].rstrip()
+    if text.endswith("'") and text.count("'") % 2 == 1 and not text.startswith("'"):
+        text = text[:-1].rstrip()
+
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
+        text = text[1:-1]
+
+    lower = text.lower()
+    if lower in {"true", "false", "null"}:
+        try:
+            return DirtyJson.parse_string(lower)
+        except Exception:
+            return text
+
+    if text[0] in "{[":
+        try:
+            return DirtyJson.parse_string(text)
+        except Exception:
+            return text
+
+    if re.fullmatch(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", text):
+        try:
+            return DirtyJson.parse_string(text)
+        except Exception:
+            return text
+
+    return text
 
 def extract_json_object_string(content):
     start = content.find('{')

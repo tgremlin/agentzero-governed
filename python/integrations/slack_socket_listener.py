@@ -36,6 +36,8 @@ class SlackConfig:
     context_lifetime_hours: int
     project_name: str
     reconnect_delay_seconds: int
+    ack_reaction_enabled: bool
+    ack_reaction_name: str
 
     @classmethod
     def load(cls) -> "SlackConfig":
@@ -50,6 +52,8 @@ class SlackConfig:
             context_lifetime_hours=max(1, int(os.getenv("SLACK_CONTEXT_LIFETIME_HOURS", "720"))),
             project_name=(os.getenv("SLACK_PROJECT_NAME") or "").strip(),
             reconnect_delay_seconds=max(1, int(os.getenv("SLACK_SOCKET_RECONNECT_DELAY_SECONDS", "5"))),
+            ack_reaction_enabled=_is_true(os.getenv("SLACK_ACK_REACTION_ENABLED"), default=True),
+            ack_reaction_name=(os.getenv("SLACK_ACK_REACTION_NAME") or "eyes").strip() or "eyes",
         )
 
 
@@ -78,6 +82,28 @@ class SlackApi:
         if thread_ts:
             body["thread_ts"] = thread_ts
         return self._request("POST", "chat.postMessage", self.bot_token, body=body)
+
+    def get_thread_root(self, channel: str, thread_ts: str) -> dict[str, Any] | None:
+        payload = self._request(
+            method="GET",
+            endpoint="conversations.replies",
+            token=self.bot_token,
+            query={"channel": channel, "ts": thread_ts, "limit": 1, "inclusive": "true"},
+        )
+        messages = payload.get("messages", [])
+        if isinstance(messages, list) and messages:
+            first = messages[0]
+            if isinstance(first, dict):
+                return first
+        return None
+
+    def add_reaction(self, channel: str, timestamp: str, name: str) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "channel": channel,
+            "timestamp": timestamp,
+            "name": name,
+        }
+        return self._request("POST", "reactions.add", self.bot_token, body=body)
 
     def _request(
         self,
@@ -213,7 +239,9 @@ class SlackSocketListener:
         self.agent_api = AgentApi(self.config.app_url)
         self.context_locks: dict[str, asyncio.Lock] = {}
         self.bot_user_id = ""
+        self.bot_id = ""
         self.bot_name = "agentzero"
+        self._reaction_missing_scope_logged = False
 
     def _load_tokens(self) -> tuple[str, str]:
         try:
@@ -253,6 +281,7 @@ class SlackSocketListener:
                 api = SlackApi(bot_token=bot_token, app_token=app_token)
                 auth = api.auth_test()
                 self.bot_user_id = str(auth.get("user_id", "")).strip()
+                self.bot_id = str(auth.get("bot_id", "")).strip()
                 self.bot_name = str(auth.get("user", "agentzero")).strip() or "agentzero"
                 await self._connect_and_consume(api)
             except Exception as exc:
@@ -295,7 +324,27 @@ class SlackSocketListener:
     async def _handle_event(self, api: SlackApi, event: dict[str, Any]) -> None:
         parsed = self._parse_event(event)
         if not parsed:
+            parsed = await self._parse_bot_started_thread_followup(api, event)
+        if not parsed:
             return
+
+        if self.config.ack_reaction_enabled:
+            try:
+                await asyncio.to_thread(
+                    api.add_reaction,
+                    parsed["channel"],
+                    parsed["message_ts"],
+                    self.config.ack_reaction_name,
+                )
+            except Exception as exc:
+                if "missing_scope" in str(exc):
+                    if not self._reaction_missing_scope_logged:
+                        PrintStyle.warning(
+                            "Slack reactions.add missing scope. Add reactions:write to bot OAuth scopes."
+                        )
+                        self._reaction_missing_scope_logged = True
+                else:
+                    PrintStyle.warning(f"Slack ack reaction failed: {exc}")
 
         context_key = parsed["context_key"]
         context_id = self.map_store.get(context_key)
@@ -320,7 +369,7 @@ class SlackSocketListener:
                 await asyncio.to_thread(
                     api.post_message,
                     parsed["channel"],
-                    self._trim_reply(reply),
+                    self._trim_reply(self._to_slack_mrkdwn(reply)),
                     thread_ts,
                 )
             except Exception as exc:
@@ -331,11 +380,65 @@ class SlackSocketListener:
                     await asyncio.to_thread(
                         api.post_message,
                         parsed["channel"],
-                        self._trim_reply(err_reply),
+                        self._trim_reply(self._to_slack_mrkdwn(err_reply)),
                         thread_ts,
                     )
                 except Exception:
                     pass
+
+    async def _parse_bot_started_thread_followup(
+        self, api: SlackApi, event: dict[str, Any]
+    ) -> dict[str, str] | None:
+        event_type = str(event.get("type", "")).strip()
+        subtype = str(event.get("subtype", "")).strip()
+        channel_type = str(event.get("channel_type", "")).strip()
+        channel = str(event.get("channel", "")).strip()
+        user = str(event.get("user", "")).strip()
+        text = str(event.get("text", "")).strip()
+        raw_thread_ts = str(event.get("thread_ts", "")).strip()
+        client_msg_id = str(event.get("client_msg_id", "")).strip()
+
+        if self.config.mode not in {"mentions", "both"}:
+            return None
+        if event_type != "message":
+            return None
+        if subtype:
+            return None
+        if channel_type not in {"channel", "group"}:
+            return None
+        if not channel or not user or not text:
+            return None
+        if not raw_thread_ts:
+            return None
+        if self.bot_user_id and user == self.bot_user_id:
+            return None
+        if not client_msg_id:
+            return None
+
+        context_key = f"channel:{channel}:thread:{raw_thread_ts}"
+        if self.map_store.get(context_key):
+            return None
+
+        root = await asyncio.to_thread(api.get_thread_root, channel, raw_thread_ts)
+        if not isinstance(root, dict):
+            return None
+
+        root_bot_id = str(root.get("bot_id", "")).strip()
+        root_user = str(root.get("user", "")).strip()
+        if (self.bot_id and root_bot_id == self.bot_id) or (
+            self.bot_user_id and root_user == self.bot_user_id
+        ):
+            PrintStyle(font_color="cyan").print(
+                f"Slack thread adopted from bot root: channel={channel} thread_ts={raw_thread_ts}"
+            )
+            return {
+                "context_key": context_key,
+                "channel": channel,
+                "thread_ts": raw_thread_ts,
+                "message_ts": str(event.get("ts", "")).strip() or raw_thread_ts,
+                "agent_message": text,
+            }
+        return None
 
     def _parse_event(self, event: dict[str, Any]) -> dict[str, str] | None:
         event_type = str(event.get("type", "")).strip()
@@ -345,17 +448,30 @@ class SlackSocketListener:
         text = str(event.get("text", "")).strip()
         channel_type = str(event.get("channel_type", "")).strip()
         thread_ts = str(event.get("thread_ts", "")).strip() or str(event.get("ts", "")).strip()
+        message_ts = str(event.get("ts", "")).strip() or thread_ts
         bot_id = str(event.get("bot_id", "")).strip()
+        client_msg_id = str(event.get("client_msg_id", "")).strip()
 
         if not channel or not thread_ts:
             return None
         if subtype:
             return None
         if bot_id:
+            PrintStyle(font_color="yellow").print("Slack event ignored: bot_id present")
             return None
         if not user:
+            PrintStyle(font_color="yellow").print("Slack event ignored: missing user")
             return None
         if self.bot_user_id and user == self.bot_user_id:
+            PrintStyle(font_color="yellow").print("Slack event ignored: from AgentZero bot user")
+            return None
+
+        # Prevent feedback loops by handling only human client messages.
+        # Bot/system generated messages generally do not carry client_msg_id.
+        if event_type in {"message", "app_mention"} and not client_msg_id:
+            PrintStyle(font_color="yellow").print(
+                "Slack event ignored: missing client_msg_id (likely bot/system echo)"
+            )
             return None
 
         allow_dm = self.config.mode in {"dm", "both"}
@@ -367,6 +483,7 @@ class SlackSocketListener:
                 "context_key": context_key,
                 "channel": channel,
                 "thread_ts": thread_ts,
+                "message_ts": message_ts,
                 "agent_message": text,
             }
 
@@ -377,6 +494,7 @@ class SlackSocketListener:
                 "context_key": context_key,
                 "channel": channel,
                 "thread_ts": thread_ts,
+                "message_ts": message_ts,
                 "agent_message": cleaned or text,
             }
 
@@ -389,6 +507,7 @@ class SlackSocketListener:
                     "context_key": context_key,
                     "channel": channel,
                     "thread_ts": thread_ts,
+                    "message_ts": message_ts,
                     "agent_message": text,
                 }
         PrintStyle(font_color="yellow").print(
@@ -404,6 +523,35 @@ class SlackSocketListener:
         if len(text) <= 39000:
             return text
         return text[:39000] + "\n\n[truncated]"
+
+    def _to_slack_mrkdwn(self, text: str) -> str:
+        """
+        Deterministic conversion from common Markdown into Slack mrkdwn.
+        This lets the agent use normal Markdown while Slack output remains readable.
+        """
+        out = text.strip()
+        if not out:
+            return out
+
+        # Markdown links: [label](https://example.com) -> <https://example.com|label>
+        out = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", r"<\2|\1>", out)
+
+        # Headings: ## Title -> *Title*
+        out = re.sub(r"(?m)^\s{0,3}#{1,6}\s+(.+?)\s*$", r"*\1*", out)
+
+        # Task list items to plain bullets.
+        out = re.sub(r"(?m)^\s*[-*]\s+\[[xX]\]\s+", "• [x] ", out)
+        out = re.sub(r"(?m)^\s*[-*]\s+\[\s\]\s+", "• [ ] ", out)
+
+        # Unordered list marker normalization.
+        out = re.sub(r"(?m)^\s*[-*]\s+", "• ", out)
+
+        # Bold/strike conversions.
+        out = re.sub(r"\*\*(.+?)\*\*", r"*\1*", out)
+        out = re.sub(r"__(.+?)__", r"*\1*", out)
+        out = re.sub(r"~~(.+?)~~", r"~\1~", out)
+
+        return out
 
 
 async def _main() -> None:

@@ -280,8 +280,11 @@ def _risk_for_tool(tool_name: str, tool_args: dict[str, Any], policy: dict[str, 
     if tool_name in risk_map:
         return risk_map[tool_name], False
 
-    if tool_name == "gh":
+    if tool_name == "gh" or tool_name.startswith("gh:"):
         method = str(tool_args.get("method", "")).strip().lower()
+        if not method and ":" in tool_name:
+            _, suffix = tool_name.split(":", 1)
+            method = suffix.strip().lower()
         if method in {"repo_view", "issue_list", "pr_list", "pr_view"}:
             return "low", False
         return "high", False

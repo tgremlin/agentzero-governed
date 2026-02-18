@@ -123,8 +123,7 @@ class SchedulerTool(Tool):
         if task.state == TaskState.RUNNING:
             if context:
                 context.reset()
-            await TaskScheduler.get().update_task(task_uuid, state=TaskState.IDLE)
-            await TaskScheduler.get().save()
+            await TaskScheduler.get().cancel_task_by_uuid(task_uuid, terminate_thread=True)
 
         if context and context.id == task.uuid:
             AgentContext.remove(context.id)

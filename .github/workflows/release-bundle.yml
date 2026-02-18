@@ -1,0 +1,37 @@
+name: release-bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (example: 0.1.0)"
+        required: true
+        type: string
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build app container
+        run: docker compose -f docker-compose.client.yml up -d --build app
+
+      - name: Build release bundle in app container
+        run: |
+          docker compose -f docker-compose.client.yml exec -T app /bin/bash -lc \
+            "cd /a0 && ./tools/package_release.sh --version '${{ inputs.version }}'"
+
+      - name: Upload release bundle artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentzero-governed-v${{ inputs.version }}
+          path: |
+            dist/agentzero-governed-v${{ inputs.version }}.tar.gz
+            dist/agentzero-governed-v${{ inputs.version }}.sha256
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.client.yml down -v

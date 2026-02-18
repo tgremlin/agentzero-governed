@@ -654,6 +654,88 @@ class TaskScheduler:
         deferred_task.kill(terminate_thread=terminate_thread)
         return True
 
+    @staticmethod
+    def _is_stale_running_task(
+        task: Union[ScheduledTask, AdHocTask, PlannedTask],
+        now: datetime,
+        stale_after_seconds: int,
+        has_local_handle: bool,
+    ) -> bool:
+        if task.state != TaskState.RUNNING:
+            return False
+        if has_local_handle:
+            return False
+        if stale_after_seconds <= 0:
+            return False
+        if not isinstance(task.updated_at, datetime):
+            return False
+        return (now - task.updated_at).total_seconds() >= stale_after_seconds
+
+    async def recover_stale_running_tasks(self) -> list[str]:
+        stale_after_seconds = int(os.getenv("SCHEDULER_STALE_RUNNING_SECONDS", "600"))
+        if stale_after_seconds <= 0:
+            return []
+
+        await self.reload()
+        now = datetime.now(timezone.utc)
+        recovered: list[str] = []
+        running_handles: set[str] = set()
+        with self._running_tasks_lock:
+            running_handles = set(self._running_deferred_tasks.keys())
+
+        for task in self.get_tasks():
+            if not self._is_stale_running_task(
+                task=task,
+                now=now,
+                stale_after_seconds=stale_after_seconds,
+                has_local_handle=task.uuid in running_handles,
+            ):
+                continue
+            task_name = task.name
+            await self.update_task(
+                task.uuid,
+                state=TaskState.IDLE,
+                last_result=(
+                    "Recovered stale RUNNING state after scheduler restart or worker loss."
+                ),
+            )
+            recovered.append(task.uuid)
+            PrintStyle.warning(
+                f"Recovered stale scheduler task '{task_name}' ({task.uuid}) to IDLE"
+            )
+
+        if recovered:
+            await self.save()
+        return recovered
+
+    async def cancel_task_by_uuid(
+        self, task_uuid: str, terminate_thread: bool = True
+    ) -> tuple[bool, str]:
+        await self.reload()
+        task = self.get_task_by_uuid(task_uuid)
+        if not task:
+            return False, "task_not_found"
+
+        if task.state != TaskState.RUNNING:
+            return True, "task_not_running"
+
+        cancelled_live = self.cancel_running_task(
+            task_uuid, terminate_thread=terminate_thread
+        )
+        status = "cancelled_live" if cancelled_live else "cancelled_stale"
+        last_result = (
+            "Task cancelled by user."
+            if cancelled_live
+            else "Task force-cancelled from stale RUNNING state."
+        )
+        await self.update_task(
+            task_uuid,
+            state=TaskState.IDLE,
+            last_result=last_result,
+        )
+        await self.save()
+        return True, status
+
     def cancel_tasks_by_context(self, context_id: str, terminate_thread: bool = False) -> bool:
         cancelled_any = False
         with self._running_tasks_lock:
@@ -703,6 +785,7 @@ class TaskScheduler:
         return self._tasks.find_task_by_name(name)
 
     async def tick(self):
+        await self.recover_stale_running_tasks()
         for task in await self._tasks.get_due_tasks():
             await self._run_task(task)
 
