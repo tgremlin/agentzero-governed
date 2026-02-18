@@ -81,6 +81,13 @@ mkdir -p "${OUTPUT_DIR}"
     . | (cd "${STAGE_DIR}" && tar -xf -)
 )
 
+# Keep runtime data excluded, but explicitly include required Temporal config seed.
+if [[ -f "${REPO_ROOT}/data/temporal/dynamicconfig/development.yaml" ]]; then
+  mkdir -p "${STAGE_DIR}/data/temporal/dynamicconfig"
+  cp "${REPO_ROOT}/data/temporal/dynamicconfig/development.yaml" \
+    "${STAGE_DIR}/data/temporal/dynamicconfig/development.yaml"
+fi
+
 # Ensure generated artifacts are fresh.
 rm -f "${ARCHIVE_PATH}"
 (

@@ -56,6 +56,7 @@ services:
       context: .
       dockerfile: Dockerfile.client
     image: ${APP_IMAGE_NAME:-agentzero-governed}:latest
+    pull_policy: never
     container_name: agentzero
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-agentzero}:${POSTGRES_PASSWORD:-agentzero}@postgres:5432/${POSTGRES_DB:-agentzero}
@@ -86,6 +87,7 @@ services:
 
   governance-worker:
     image: ${APP_IMAGE_NAME:-agentzero-governed}:latest
+    pull_policy: never
     container_name: agentzero-governance-worker
     command: ["/opt/venv-a0/bin/python", "-m", "python.governance_runtime.temporal_worker"]
     environment:
@@ -108,6 +110,7 @@ services:
 
   slack-socket-listener:
     image: ${APP_IMAGE_NAME:-agentzero-governed}:latest
+    pull_policy: never
     container_name: agentzero-slack-socket-listener
     command: ["/opt/venv-a0/bin/python", "-m", "python.integrations.slack_socket_listener"]
     environment:

@@ -79,6 +79,12 @@ cp .env.client.example .env
 python3 tools/smoke_client_stack.py
 ```
 
+`./start.sh` behavior:
+- Builds app image only when missing (first run) by default.
+- Reuses existing local image on restarts (faster, no dependency reinstall).
+- To force rebuild: `FORCE_REBUILD=true ./start.sh`.
+- Seeds `data/temporal/dynamicconfig/development.yaml` automatically if missing.
+
 If clients access from LAN/remote URLs (not localhost), set `ALLOWED_ORIGINS` in `.env` before `./start.sh`, for example:
 
 ```bash

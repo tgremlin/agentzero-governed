@@ -32,4 +32,7 @@ def test_package_release_creates_bundle(tmp_path: Path):
         names = tar.getnames()
     assert "agentzero-governed-v9.9.9-test/VERSION" in names
     assert "agentzero-governed-v9.9.9-test/tools/package_release.sh" in names
-
+    assert (
+        "agentzero-governed-v9.9.9-test/data/temporal/dynamicconfig/development.yaml"
+        in names
+    )

@@ -32,7 +32,9 @@ jobs:
             /a0/tests/test_scheduler_manifest.py \
             /a0/tests/test_slack_socket_listener.py \
             /a0/tests/test_gh_tool.py \
-            /a0/tests/test_package_release.py
+            /a0/tests/test_package_release.py \
+            /a0/tests/test_start_script.py \
+            /a0/tests/test_client_compose_policies.py
 
       - name: Dump compose logs on failure
         if: failure()
