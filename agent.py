@@ -1,4 +1,4 @@
-import asyncio, random, string, threading
+import asyncio, hashlib, random, string, threading
 import nest_asyncio
 
 nest_asyncio.apply()
@@ -39,6 +39,7 @@ from python.governance_runtime.event_taxonomy import (
     EVENT_LLM_RESPONSE_RECEIVED,
     EVENT_LLM_RESPONSE_PARSED,
     EVENT_LLM_RESPONSE_PARSE_FAILED,
+    EVENT_PROMPT_FINAL_RENDERED,
     EVENT_RUN_OUTCOME,
 )
 
@@ -784,6 +785,18 @@ class Agent:
             "background": background,
         }
         await self.call_extensions("util_model_call_before", call_data=call_data)
+        rendered_prompt_hash = hashlib.sha256(
+            f"{call_data.get('system', '')}\n\n{call_data.get('message', '')}".encode("utf-8")
+        ).hexdigest()
+        emit_governance_runtime_event(
+            self,
+            {
+                "type": EVENT_PROMPT_FINAL_RENDERED,
+                "model_role": "utility",
+                "prompt_hash": rendered_prompt_hash,
+                "source": "agent.call_utility_model",
+            },
+        )
         emit_governance_runtime_event(
             self,
             {
@@ -831,6 +844,18 @@ class Agent:
 
         # model class
         model = self.get_chat_model()
+        rendered_prompt = "\n\n".join(str(getattr(m, "content", "") or "") for m in messages)
+        rendered_prompt_hash = hashlib.sha256(rendered_prompt.encode("utf-8")).hexdigest()
+        emit_governance_runtime_event(
+            self,
+            {
+                "type": EVENT_PROMPT_FINAL_RENDERED,
+                "model_role": "chat",
+                "prompt_hash": rendered_prompt_hash,
+                "messages_count": len(messages),
+                "source": "agent.call_chat_model",
+            },
+        )
         emit_governance_runtime_event(
             self,
             {
