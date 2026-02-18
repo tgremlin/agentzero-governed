@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from python.helpers.tool import Response, Tool
+from python.helpers.secrets import get_secrets_manager
 
 
 class GhTool(Tool):
@@ -167,7 +168,7 @@ class GhTool(Tool):
         body: dict[str, Any] | None = None,
         auth_required: bool = False,
     ) -> Any:
-        token = str(os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN") or "").strip()
+        token = self._resolve_token()
         if auth_required and not token:
             raise RuntimeError("Missing GH_TOKEN or GITHUB_TOKEN for write operation.")
 
@@ -199,3 +200,16 @@ class GhTool(Tool):
         if not raw:
             return {}
         return json.loads(raw)
+
+    def _resolve_token(self) -> str:
+        try:
+            secrets = get_secrets_manager(self.agent.context).load_secrets()
+        except Exception:
+            secrets = {}
+
+        for key in ("GH_TOKEN", "GITHUB_TOKEN"):
+            value = str(secrets.get(key, "")).strip()
+            if value:
+                return value
+
+        return str(os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN") or "").strip()

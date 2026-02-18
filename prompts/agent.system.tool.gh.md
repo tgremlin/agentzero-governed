@@ -1,7 +1,7 @@
 ### gh:
 This is a GitHub CLI-style tool implemented with GitHub REST API (no `gh` binary required).
 
-For write operations, set `GH_TOKEN` or `GITHUB_TOKEN`.
+For write operations, set `GH_TOKEN` or `GITHUB_TOKEN` in Settings -> Secrets (preferred) or environment variables.
 
 #### Methods
 1. `gh:repo_view`

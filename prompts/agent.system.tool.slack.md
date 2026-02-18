@@ -1,7 +1,7 @@
 ### slack:
 This tool sends Slack messages to channels or DMs using Slack Web API.
 
-Set bot token with `SLACK_BOT_TOKEN` (recommended) or pass `token` in tool args.
+Set bot token in Settings -> Secrets as `SLACK_BOT_TOKEN` (preferred), or via env `SLACK_BOT_TOKEN`, or pass `token` in tool args.
 
 #### Methods
 1. `slack:post_message`

@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from python.helpers.tool import Response, Tool
+from python.helpers.secrets import get_secrets_manager
 
 
 class SlackTool(Tool):
@@ -13,7 +14,7 @@ class SlackTool(Tool):
 
     async def execute(self, **kwargs):
         method = str(kwargs.get("method") or self.method or "").strip().lower()
-        token = str(kwargs.get("token") or os.getenv("SLACK_BOT_TOKEN") or "").strip()
+        token = self._resolve_token(kwargs)
 
         if not method:
             return Response(
@@ -41,6 +42,22 @@ class SlackTool(Tool):
             return Response(message=json.dumps(result, indent=2), break_loop=False)
         except Exception as exc:
             return Response(message=f"Slack tool error: {exc}", break_loop=False)
+
+    def _resolve_token(self, args: dict[str, Any]) -> str:
+        direct = str(args.get("token", "")).strip()
+        if direct:
+            return direct
+
+        try:
+            secrets = get_secrets_manager(self.agent.context).load_secrets()
+        except Exception:
+            secrets = {}
+
+        secret_token = str(secrets.get("SLACK_BOT_TOKEN", "")).strip()
+        if secret_token:
+            return secret_token
+
+        return str(os.getenv("SLACK_BOT_TOKEN") or "").strip()
 
     def _post_message(self, args: dict[str, Any], token: str) -> dict[str, Any]:
         channel = str(args.get("channel", "")).strip()
