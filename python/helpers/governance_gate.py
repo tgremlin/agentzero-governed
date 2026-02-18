@@ -9,6 +9,16 @@ from pathlib import Path
 from typing import Any
 
 from python.helpers.errors import RepairableException
+from python.governance_runtime.event_taxonomy import (
+    DECISION_ALLOW,
+    DECISION_DENY,
+    DECISION_REQUIRE_APPROVAL,
+    EVENT_APPROVAL_REQUESTED,
+    EVENT_APPROVAL_RESOLVED,
+    EVENT_POLICY_CHECK_DECISION,
+    EVENT_RUN_STARTED,
+    EVENT_TOOL_CALL_REQUESTED,
+)
 from python.governance_runtime.repos import (
     get_persist_backend,
     get_postgres_repo,
@@ -126,7 +136,7 @@ def _emit_run_started_once(agent: Any, project_name: str) -> None:
     _emit_governance_event(
         agent,
         {
-            "type": "run.started",
+            "type": EVENT_RUN_STARTED,
             "project_name": project_name,
             "source": "governance_gate",
         },
@@ -344,24 +354,24 @@ def _risk_for_tool(tool_name: str, tool_args: dict[str, Any], policy: dict[str, 
 
 def _resolve_decision(mode: str, risk: str, unknown_tool: bool, require_approval_for: list[str], default_policy: str) -> str:
     if mode == "autonomy":
-        return "allow"
+        return DECISION_ALLOW
 
     if unknown_tool:
         if mode == "strict":
-            return "deny"
+            return DECISION_DENY
         # standard/custom default to explicit approval for unknown tools
-        return "require_approval"
+        return DECISION_REQUIRE_APPROVAL
 
     if risk in require_approval_for:
-        return "require_approval"
+        return DECISION_REQUIRE_APPROVAL
 
     if mode == "strict" and risk == "medium":
-        return "require_approval"
+        return DECISION_REQUIRE_APPROVAL
 
     if default_policy == "deny" and risk not in {"low"}:
-        return "deny"
+        return DECISION_DENY
 
-    return "allow"
+    return DECISION_ALLOW
 
 
 def _persist_approval_if_needed(agent: Any, *, project_name: str, tool_name: str, tool_args: dict[str, Any], risk: str, tool_call_hash: str) -> str:
@@ -421,7 +431,7 @@ def _persist_approval_if_needed(agent: Any, *, project_name: str, tool_name: str
         path.write_text(_stable_json(payload), encoding="utf-8")
 
     event = {
-        "type": "approval.requested",
+        "type": EVENT_APPROVAL_REQUESTED,
         "created_at": _now_iso(),
         "approval_id": approval_id,
         "project_name": project_name,
@@ -514,13 +524,13 @@ def evaluate_tool_gate(agent: Any, tool_name: str, tool_args: dict[str, Any] | N
         override = overrides.get(tool_name)
         if isinstance(override, dict):
             decision_raw = str(override.get("decision", "")).lower().strip()
-            if decision_raw in {"allow", "deny", "require_approval"}:
+            if decision_raw in {DECISION_ALLOW, DECISION_DENY, DECISION_REQUIRE_APPROVAL}:
                 override_decision = decision_raw
 
     if override_decision:
         decision = override_decision
     elif bool(policy.get("allow_readonly_terminal_without_approval")) and is_readonly_terminal:
-        decision = "allow"
+        decision = DECISION_ALLOW
     else:
         decision = _resolve_decision(
             str(policy.get("mode", "standard")),
@@ -534,7 +544,7 @@ def evaluate_tool_gate(agent: Any, tool_name: str, tool_args: dict[str, Any] | N
     _emit_governance_event(
         agent,
         {
-            "type": "tool.call.requested",
+            "type": EVENT_TOOL_CALL_REQUESTED,
             "project_name": project_name,
             "tool_name": tool_name,
             "tool_call_hash": tool_call_hash,
@@ -545,7 +555,7 @@ def evaluate_tool_gate(agent: Any, tool_name: str, tool_args: dict[str, Any] | N
     token = f"gov_{tool_call_hash[:20]}"
     approval_id: str | None = None
 
-    if decision == "require_approval":
+    if decision == DECISION_REQUIRE_APPROVAL:
         approval_id = _persist_approval_if_needed(
             agent,
             project_name=project_name,
@@ -556,12 +566,12 @@ def evaluate_tool_gate(agent: Any, tool_name: str, tool_args: dict[str, Any] | N
         )
         status = _load_approval_status(approval_id)
         if status == "approved":
-            decision = "allow"
+            decision = DECISION_ALLOW
         elif status == "denied":
-            decision = "deny"
+            decision = DECISION_DENY
 
     policy_event = {
-        "type": "policy.check.decision",
+        "type": EVENT_POLICY_CHECK_DECISION,
         "project_name": project_name,
         "tool_name": tool_name,
         "risk": risk,
@@ -573,7 +583,7 @@ def evaluate_tool_gate(agent: Any, tool_name: str, tool_args: dict[str, Any] | N
     }
     _emit_governance_event(agent, policy_event)
 
-    if decision == "deny":
+    if decision == DECISION_DENY:
         try:
             agent.context.log.log(
                 type="governance_denied",
@@ -598,9 +608,9 @@ def evaluate_tool_gate(agent: Any, tool_name: str, tool_args: dict[str, Any] | N
 def enforce_tool_gate_or_raise(agent: Any, tool_name: str, tool_args: dict[str, Any] | None = None) -> dict[str, Any]:
     gate = evaluate_tool_gate(agent, tool_name, tool_args or {})
     decision = str(gate.get("decision", "allow"))
-    if decision == "allow":
+    if decision == DECISION_ALLOW:
         return gate
-    if decision == "require_approval":
+    if decision == DECISION_REQUIRE_APPROVAL:
         raise RepairableException(
             "Governance approval required before tool execution. "
             f"tool={tool_name} risk={gate.get('risk', 'unknown')} "
@@ -666,7 +676,7 @@ def resolve_approval(agent: Any, approval_id: str, decision: str, rationale: str
         raise RepairableException(f"Approval not found: {approval_id}")
 
     event = {
-        "type": "approval.resolved",
+        "type": EVENT_APPROVAL_RESOLVED,
         "created_at": _now_iso(),
         "approval_id": approval_id,
         "status": status,
