@@ -87,6 +87,13 @@ cp .env.client.example .env
 python3 tools/smoke_client_stack.py
 ```
 
+If UI access is from a non-localhost origin (for example another machine on your LAN), set `ALLOWED_ORIGINS` in `.env` and restart:
+
+```bash
+ALLOWED_ORIGINS=http://localhost:50001,http://127.0.0.1:50001,http://192.168.10.121:50001
+./stop.sh && ./start.sh
+```
+
 Persistent data root:
 - Configure `A0_DATA_DIR` in `.env` (default `./client-data`).
 - If `/opt/agentzero/data` exists, `start.sh` auto-uses it for backwards compatibility.
@@ -100,3 +107,26 @@ Stop stack:
 ```bash
 ./stop.sh
 ```
+
+## Slack Socket Listener (Optional)
+
+This fork can bridge inbound Slack events to Agent Zero chats through Socket Mode.
+
+Required secrets (Settings -> Secrets):
+- `SLACK_BOT_TOKEN` (`xoxb-...`)
+- `SLACK_APP_TOKEN` (`xapp-...`, scope `connections:write`)
+
+Required env (`.env`):
+- `SLACK_SOCKET_ENABLED=true`
+
+Optional env:
+- `SLACK_SOCKET_MODE=dm|mentions|both` (default `both`)
+- `SLACK_SOCKET_REPLY_IN_THREAD=true|false` (default `true`)
+- `SLACK_CONTEXT_LIFETIME_HOURS=720`
+- `SLACK_A0_API_URL=http://app:5000`
+- `SLACK_PROJECT_NAME=<project_slug>` to route Slack chats into a specific project
+
+Behavior:
+- DM events map to one persistent Agent Zero chat per Slack user.
+- Mention events map to one persistent Agent Zero chat per Slack thread.
+- Context mapping is persisted at `usr/slack/socket_context_map.json`.

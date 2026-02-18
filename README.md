@@ -79,6 +79,12 @@ cp .env.client.example .env
 python3 tools/smoke_client_stack.py
 ```
 
+If clients access from LAN/remote URLs (not localhost), set `ALLOWED_ORIGINS` in `.env` before `./start.sh`, for example:
+
+```bash
+ALLOWED_ORIGINS=http://localhost:50001,http://127.0.0.1:50001,http://192.168.10.121:50001
+```
+
 Data persistence:
 - Set `A0_DATA_DIR` in `.env` to control where `usr/tmp/logs/knowledge` live.
 - Default is `./client-data`.

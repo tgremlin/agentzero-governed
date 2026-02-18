@@ -1,5 +1,8 @@
 # Governance + Temporal + Tracing Implementation Plan (Agent Zero)
 
+> Status: historical planning document.  
+> For current runtime and deployment behavior, refer to `docs/governance/README.md` and `docker-compose.client.yml`.
+
 ## Scope and constraints
 - Keep runtime governance enforcement in Agent Zero (no prompt-only security).
 - Keep governance project-scoped: no active project => governance OFF.
