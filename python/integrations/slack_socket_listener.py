@@ -79,6 +79,20 @@ class SlackApi:
             body["thread_ts"] = thread_ts
         return self._request("POST", "chat.postMessage", self.bot_token, body=body)
 
+    def get_thread_root(self, channel: str, thread_ts: str) -> dict[str, Any] | None:
+        payload = self._request(
+            method="GET",
+            endpoint="conversations.replies",
+            token=self.bot_token,
+            query={"channel": channel, "ts": thread_ts, "limit": 1, "inclusive": "true"},
+        )
+        messages = payload.get("messages", [])
+        if isinstance(messages, list) and messages:
+            first = messages[0]
+            if isinstance(first, dict):
+                return first
+        return None
+
     def _request(
         self,
         method: str,
@@ -213,6 +227,7 @@ class SlackSocketListener:
         self.agent_api = AgentApi(self.config.app_url)
         self.context_locks: dict[str, asyncio.Lock] = {}
         self.bot_user_id = ""
+        self.bot_id = ""
         self.bot_name = "agentzero"
 
     def _load_tokens(self) -> tuple[str, str]:
@@ -253,6 +268,7 @@ class SlackSocketListener:
                 api = SlackApi(bot_token=bot_token, app_token=app_token)
                 auth = api.auth_test()
                 self.bot_user_id = str(auth.get("user_id", "")).strip()
+                self.bot_id = str(auth.get("bot_id", "")).strip()
                 self.bot_name = str(auth.get("user", "agentzero")).strip() or "agentzero"
                 await self._connect_and_consume(api)
             except Exception as exc:
@@ -295,6 +311,8 @@ class SlackSocketListener:
     async def _handle_event(self, api: SlackApi, event: dict[str, Any]) -> None:
         parsed = self._parse_event(event)
         if not parsed:
+            parsed = await self._parse_bot_started_thread_followup(api, event)
+        if not parsed:
             return
 
         context_key = parsed["context_key"]
@@ -336,6 +354,59 @@ class SlackSocketListener:
                     )
                 except Exception:
                     pass
+
+    async def _parse_bot_started_thread_followup(
+        self, api: SlackApi, event: dict[str, Any]
+    ) -> dict[str, str] | None:
+        event_type = str(event.get("type", "")).strip()
+        subtype = str(event.get("subtype", "")).strip()
+        channel_type = str(event.get("channel_type", "")).strip()
+        channel = str(event.get("channel", "")).strip()
+        user = str(event.get("user", "")).strip()
+        text = str(event.get("text", "")).strip()
+        raw_thread_ts = str(event.get("thread_ts", "")).strip()
+        client_msg_id = str(event.get("client_msg_id", "")).strip()
+
+        if self.config.mode not in {"mentions", "both"}:
+            return None
+        if event_type != "message":
+            return None
+        if subtype:
+            return None
+        if channel_type not in {"channel", "group"}:
+            return None
+        if not channel or not user or not text:
+            return None
+        if not raw_thread_ts:
+            return None
+        if self.bot_user_id and user == self.bot_user_id:
+            return None
+        if not client_msg_id:
+            return None
+
+        context_key = f"channel:{channel}:thread:{raw_thread_ts}"
+        if self.map_store.get(context_key):
+            return None
+
+        root = await asyncio.to_thread(api.get_thread_root, channel, raw_thread_ts)
+        if not isinstance(root, dict):
+            return None
+
+        root_bot_id = str(root.get("bot_id", "")).strip()
+        root_user = str(root.get("user", "")).strip()
+        if (self.bot_id and root_bot_id == self.bot_id) or (
+            self.bot_user_id and root_user == self.bot_user_id
+        ):
+            PrintStyle(font_color="cyan").print(
+                f"Slack thread adopted from bot root: channel={channel} thread_ts={raw_thread_ts}"
+            )
+            return {
+                "context_key": context_key,
+                "channel": channel,
+                "thread_ts": raw_thread_ts,
+                "agent_message": text,
+            }
+        return None
 
     def _parse_event(self, event: dict[str, Any]) -> dict[str, str] | None:
         event_type = str(event.get("type", "")).strip()
