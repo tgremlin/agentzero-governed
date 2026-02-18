@@ -28,6 +28,8 @@ Run from repository root:
 - Test files: `tests/test_*.py`.
 - Async tests: always `await` async calls before subscripting results.
 - Add regression tests for governance/Temporal/API behavior when fixing bugs.
+- Always run tests inside the Docker app container used by CI/CD. Do not run tests on the host.
+- Default test command pattern: `docker compose -f docker-compose.client.yml exec -T app /opt/venv-a0/bin/python -m pytest ...`
 
 ## Commit & Pull Request Guidelines
 - Use short imperative commit subjects (e.g., `Fix governance async test await`).
