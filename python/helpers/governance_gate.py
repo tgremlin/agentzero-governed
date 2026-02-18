@@ -570,12 +570,29 @@ def evaluate_tool_gate(agent: Any, tool_name: str, tool_args: dict[str, Any] | N
         elif status == "denied":
             decision = DECISION_DENY
 
+    reason_codes: list[str] = [f"risk.{risk}", f"mode.{str(policy.get('mode', 'standard'))}"]
+    if unknown_tool:
+        reason_codes.append("tool.unknown")
+    if is_readonly_terminal:
+        reason_codes.append("terminal.read_only")
+    if override_decision:
+        reason_codes.append("decision.override")
+    if decision == DECISION_REQUIRE_APPROVAL:
+        reason_codes.append("approval.required")
+    elif decision == DECISION_DENY:
+        reason_codes.append("policy.denied")
+    else:
+        reason_codes.append("policy.allowed")
+
     policy_event = {
         "type": EVENT_POLICY_CHECK_DECISION,
         "project_name": project_name,
         "tool_name": tool_name,
         "risk": risk,
         "decision": decision,
+        "reason_codes": reason_codes,
+        "policy_name": "governance_gate",
+        "policy_version": "v1",
         "readonly_terminal": is_readonly_terminal,
         "tool_call_hash": tool_call_hash,
         "unknown_tool": unknown_tool,

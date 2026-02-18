@@ -244,6 +244,10 @@ def test_policy_check_decision_event_is_emitted(monkeypatch):
     assert policy_event.get("tool_name") == "search_engine"
     assert policy_event.get("decision") == "allow"
     assert policy_event.get("thread_id") == "ctx_test_1"
+    assert policy_event.get("policy_name") == "governance_gate"
+    assert policy_event.get("policy_version") == "v1"
+    assert "risk.low" in list(policy_event.get("reason_codes", []))
+    assert "policy.allowed" in list(policy_event.get("reason_codes", []))
 
 
 def test_run_started_is_emitted_once_per_context(monkeypatch):
