@@ -59,3 +59,22 @@ def test_signal_governed_run_updates_status_and_event(monkeypatch):
     assert out["persisted"] is True
     assert repo.updated == [("11111111-1111-1111-1111-111111111111", "paused")]
     assert repo.events and repo.events[0]["type"] == "run.signaled"
+
+
+def test_signal_governed_run_cancel_emits_outcome_event(monkeypatch):
+    repo = _FakeRepo()
+    monkeypatch.setattr(temporal_client, "get_postgres_repo", lambda: repo)
+
+    out = asyncio.run(
+        temporal_client.signal_governed_run(
+            run_id="11111111-1111-1111-1111-111111111111",
+            signal="cancel",
+            payload={"reason": "manual"},
+        )
+    )
+
+    assert out["status"] == "cancelled"
+    assert out["persisted"] is True
+    assert repo.updated == [("11111111-1111-1111-1111-111111111111", "cancelled")]
+    event_types = [e.get("type") for e in repo.events]
+    assert event_types == ["run.signaled", "run.outcome"]

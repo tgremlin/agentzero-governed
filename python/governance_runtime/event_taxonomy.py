@@ -2,6 +2,7 @@ from __future__ import annotations
 
 
 EVENT_RUN_STARTED = "run.started"
+EVENT_RUN_OUTCOME = "run.outcome"
 EVENT_TOOL_CALL_REQUESTED = "tool.call.requested"
 EVENT_POLICY_CHECK_DECISION = "policy.check.decision"
 EVENT_APPROVAL_REQUESTED = "approval.requested"
