@@ -11,6 +11,9 @@ from python.helpers.governance_gate import load_governance_events
 from python.helpers.training_candidates_store import apply_candidate_overrides
 
 
+ALLOWED_CONSENT_SCOPES = {"audit_only", "eval_allowed", "training_allowed"}
+
+
 def _parse_iso_dt(value: str | None) -> dt.datetime | None:
     if not value:
         return None
@@ -70,6 +73,9 @@ def _candidate_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
         "status": event.get("status"),
         "signal": event.get("signal"),
     }
+    consent_scope = str(event.get("consent_scope", "")).strip().lower()
+    if consent_scope not in ALLOWED_CONSENT_SCOPES:
+        consent_scope = "eval_allowed"
 
     base = {
         "project_name": event.get("project_name"),
@@ -82,6 +88,7 @@ def _candidate_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
         "summary": summary,
         "source_event": event,
         "payload": candidate_payload,
+        "consent_scope": consent_scope,
     }
 
     unique_material = json.dumps(
@@ -106,6 +113,7 @@ def _matches_filters(
     event_type: str,
     training_status: str,
     run_id: str,
+    consent_scope: str,
     from_ts: dt.datetime | None,
     to_ts: dt.datetime | None,
 ) -> bool:
@@ -114,6 +122,8 @@ def _matches_filters(
     if training_status and str(candidate.get("training_status", "")).strip().lower() != training_status:
         return False
     if run_id and str(candidate.get("run_id", "")).strip() != run_id:
+        return False
+    if consent_scope and str(candidate.get("consent_scope", "")).strip().lower() != consent_scope:
         return False
 
     ts = _parse_iso_dt(candidate.get("created_at"))
@@ -173,6 +183,10 @@ class TrainingCandidates(ApiHandler):
         event_type = str(input.get("event_type", "")).strip().lower()
         training_status = str(input.get("training_status", input.get("status", ""))).strip().lower()
         run_id = str(input.get("run_id", "")).strip()
+        consent_scope = str(input.get("consent_scope", "")).strip().lower()
+        if consent_scope and consent_scope not in ALLOWED_CONSENT_SCOPES:
+            consent_scope = ""
+        export_purpose = str(input.get("export_purpose", "eval")).strip().lower() or "eval"
         export_format = str(input.get("export_format", "")).strip().lower()
         from_ts = _parse_iso_dt(input.get("from_ts"))
         to_ts = _parse_iso_dt(input.get("to_ts"))
@@ -196,17 +210,24 @@ class TrainingCandidates(ApiHandler):
                 event_type=event_type,
                 training_status=training_status,
                 run_id=run_id,
+                consent_scope=consent_scope,
                 from_ts=from_ts,
                 to_ts=to_ts,
             ):
                 continue
             candidates.append(cand)
 
+        if export_purpose == "training":
+            allowed_export_scopes = {"training_allowed"}
+        else:
+            allowed_export_scopes = {"eval_allowed", "training_allowed"}
+
         total = len(candidates)
         page = candidates[offset : offset + limit]
         page = apply_candidate_overrides(project_name, page)
 
         if export_format in {"jsonl", "csv"}:
+            page = [item for item in page if str(item.get("consent_scope", "")).strip().lower() in allowed_export_scopes]
             if export_format == "jsonl":
                 body = "".join(json.dumps(item, sort_keys=True, default=str) + "\n" for item in page)
                 return Response(

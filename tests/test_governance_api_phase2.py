@@ -196,6 +196,64 @@ def test_training_candidates_filter_and_export(monkeypatch):
     assert "candidate_id" in csv_resp.get_data(as_text=True)
 
 
+def test_training_candidates_consent_aware_exports(monkeypatch):
+    import python.api.training_candidates as mod
+
+    handler = TrainingCandidates(None, threading.Lock())
+    events = [
+        {
+            "type": "approval.resolved",
+            "status": "approved",
+            "project_name": "p1",
+            "run_id": "r1",
+            "created_at": "2026-02-17T10:01:00+00:00",
+            "tool_name": "code_execution_tool",
+            "consent_scope": "eval_allowed",
+        },
+        {
+            "type": "approval.resolved",
+            "status": "approved",
+            "project_name": "p1",
+            "run_id": "r2",
+            "created_at": "2026-02-17T10:02:00+00:00",
+            "tool_name": "code_execution_tool",
+            "consent_scope": "training_allowed",
+        },
+        {
+            "type": "approval.resolved",
+            "status": "approved",
+            "project_name": "p1",
+            "run_id": "r3",
+            "created_at": "2026-02-17T10:03:00+00:00",
+            "tool_name": "code_execution_tool",
+            "consent_scope": "audit_only",
+        },
+    ]
+    monkeypatch.setattr(mod, "load_governance_events", lambda project_name=None, limit=200: events)
+
+    eval_export = __import__("asyncio").run(
+        handler.process(
+            {"project_name": "p1", "export_format": "jsonl", "export_purpose": "eval", "limit": 10},
+            _DummyRequest("POST"),
+        )
+    )
+    eval_body = eval_export.get_data(as_text=True)
+    assert "r1" in eval_body
+    assert "r2" in eval_body
+    assert "r3" not in eval_body
+
+    training_export = __import__("asyncio").run(
+        handler.process(
+            {"project_name": "p1", "export_format": "jsonl", "export_purpose": "training", "limit": 10},
+            _DummyRequest("POST"),
+        )
+    )
+    training_body = training_export.get_data(as_text=True)
+    assert "r2" in training_body
+    assert "r1" not in training_body
+    assert "r3" not in training_body
+
+
 def test_system_trace_scaffold_contract():
     handler = SystemTrace(None, threading.Lock())
     out = __import__("asyncio").run(handler.process({}, _DummyRequest("POST")))
