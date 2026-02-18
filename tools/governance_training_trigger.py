@@ -7,6 +7,7 @@ import json
 import pathlib
 from typing import Any
 
+from python.helpers.governance_training_lifecycle import append_training_lifecycle_event
 
 def _parse_iso(value: str | None) -> dt.datetime | None:
     if not value:
@@ -103,6 +104,8 @@ def main() -> int:
         help="Maximum age of manifest to consider (days).",
     )
     parser.add_argument("--output", default="", help="Optional output path for trigger plan JSON.")
+    parser.add_argument("--lifecycle-project-name", default="", help="Optional project name for lifecycle event.")
+    parser.add_argument("--lifecycle-run-id", default="", help="Optional run ID for lifecycle event.")
     args = parser.parse_args()
 
     manifests = _load_manifests(pathlib.Path(args.datasets_dir))
@@ -117,6 +120,25 @@ def main() -> int:
         path = pathlib.Path(output)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+
+    lifecycle_project = str(args.lifecycle_project_name).strip()
+    if lifecycle_project:
+        append_training_lifecycle_event(
+            {
+                "event_type": "training.trigger.decision",
+                "project_name": lifecycle_project,
+                "run_id": str(args.lifecycle_run_id).strip() or "training-trigger",
+                "stage": "trigger",
+                "status": "triggered" if bool(result.get("trigger_training")) else "hold",
+                "details": {
+                    "eligible_manifests": result.get("eligible_manifests"),
+                    "total_records": result.get("total_records"),
+                    "total_gold": result.get("total_gold"),
+                    "min_record_count": result.get("min_record_count"),
+                    "min_gold_count": result.get("min_gold_count"),
+                },
+            }
+        )
     print(json.dumps(result, sort_keys=True))
     return 0
 

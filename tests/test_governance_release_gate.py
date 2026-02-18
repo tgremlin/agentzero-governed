@@ -1,3 +1,7 @@
+import json
+import sys
+
+import tools.governance_release_gate as gate_mod
 from tools.governance_release_gate import evaluate_release_gate
 
 
@@ -63,3 +67,52 @@ def test_release_gate_rollback_on_hard_failure():
     )
     assert out["decision"] == "rollback"
     assert out["hard_fail"] is True
+
+
+def test_release_gate_cli_emits_lifecycle_event(tmp_path, monkeypatch):
+    eval_report = tmp_path / "eval.json"
+    eval_report.write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "gates": {
+                    "tool_contract_pass_rate": True,
+                    "policy_violation_rate": True,
+                    "json_tool_call_validity": True,
+                    "approval_reject_rate": True,
+                },
+                "metrics": {
+                    "tool_contract_pass_rate": 0.99,
+                    "policy_violation_rate": 0.01,
+                    "json_tool_call_validity": 0.95,
+                    "approval_reject_rate": 0.05,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    lifecycle = tmp_path / "training-lifecycle.jsonl"
+    out_file = tmp_path / "release.json"
+
+    monkeypatch.setenv("A0_GOV_TRAINING_EVENTS_FILE", str(lifecycle))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "governance_release_gate.py",
+            "--eval-report",
+            str(eval_report),
+            "--output",
+            str(out_file),
+            "--lifecycle-project-name",
+            "p1",
+            "--lifecycle-run-id",
+            "release-run-1",
+        ],
+    )
+    rc = gate_mod.main()
+    assert rc == 0
+    rows = [json.loads(line) for line in lifecycle.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert rows
+    assert rows[-1]["event_type"] == "training.promotion.decision"
+    assert rows[-1]["status"] == "promote"

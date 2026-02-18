@@ -6,6 +6,7 @@ import json
 import pathlib
 from typing import Any
 
+from python.helpers.governance_training_lifecycle import append_training_lifecycle_event
 
 def _load_json(path: str | None) -> dict[str, Any]:
     if not path:
@@ -101,6 +102,8 @@ def main() -> int:
     parser.add_argument("--max-policy-violation-delta", type=float, default=0.01)
     parser.add_argument("--min-json-tool-call-validity-delta", type=float, default=-0.02)
     parser.add_argument("--max-approval-reject-delta", type=float, default=0.02)
+    parser.add_argument("--lifecycle-project-name", default="", help="Optional project name for lifecycle event.")
+    parser.add_argument("--lifecycle-run-id", default="", help="Optional run ID for lifecycle event.")
     args = parser.parse_args()
 
     eval_report = _load_json(args.eval_report)
@@ -119,6 +122,23 @@ def main() -> int:
         path = pathlib.Path(output)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+
+    lifecycle_project = str(args.lifecycle_project_name).strip()
+    if lifecycle_project:
+        append_training_lifecycle_event(
+            {
+                "event_type": "training.promotion.decision",
+                "project_name": lifecycle_project,
+                "run_id": str(args.lifecycle_run_id).strip() or "release-gate",
+                "stage": "promotion",
+                "status": str(result.get("decision", "unknown")).strip().lower(),
+                "details": {
+                    "hard_fail": bool(result.get("hard_fail")),
+                    "soft_fail": bool(result.get("soft_fail")),
+                    "regressions": result.get("regressions", {}),
+                },
+            }
+        )
     print(json.dumps(result, sort_keys=True))
     return 0
 
