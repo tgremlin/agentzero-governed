@@ -916,7 +916,10 @@ class Agent:
                     # Governance gate chokepoint (covers local + MCP tools)
                     from python.helpers.governance_gate import evaluate_tool_gate
 
-                    gate = evaluate_tool_gate(self, tool_name, tool_args or {})
+                    gate_args = dict(tool_args or {})
+                    if tool_method and "method" not in gate_args:
+                        gate_args["method"] = tool_method
+                    gate = evaluate_tool_gate(self, tool_name, gate_args)
                     decision = str(gate.get("decision", "allow"))
                     if decision == "require_approval":
                         # Pause-safe path: gate created approval + paused context, do not execute tool.
@@ -966,7 +969,10 @@ class Agent:
                 # Unknown tool behavior is governance-mode dependent.
                 from python.helpers.governance_gate import evaluate_tool_gate
 
-                gate = evaluate_tool_gate(self, tool_name, tool_args or {})
+                gate_args = dict(tool_args or {})
+                if tool_method and "method" not in gate_args:
+                    gate_args["method"] = tool_method
+                gate = evaluate_tool_gate(self, tool_name, gate_args)
                 decision = str(gate.get("decision", "allow"))
                 if decision == "require_approval":
                     return None
