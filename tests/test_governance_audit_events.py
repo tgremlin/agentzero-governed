@@ -1,4 +1,5 @@
 from python.governance_runtime.audit_events import build_audit_event, sanitize_payload
+from python.governance_runtime.event_taxonomy import EVENT_SECURITY_SECRET_SCAN_FAILED
 
 
 def test_sanitize_payload_redacts_secrets_and_detects_pii():
@@ -76,3 +77,22 @@ def test_build_audit_event_empty_type_falls_back_to_governance_event():
         prev_event_hash="sha256:0",
     )
     assert audit["event_type"] == "governance.event"
+
+
+def test_build_audit_event_scan_failure_fails_closed(monkeypatch):
+    def _raise(_payload):
+        raise RuntimeError("scan error")
+
+    monkeypatch.setattr("python.governance_runtime.audit_events.sanitize_payload", _raise)
+
+    audit = build_audit_event(
+        base_event={"type": "tool.call.requested", "tool_name": "slack:post_message"},
+        run_id="run-5",
+        sequence_number=1,
+        prev_event_hash="sha256:0",
+    )
+    assert audit["event_type"] == EVENT_SECURITY_SECRET_SCAN_FAILED
+    assert audit["contains_secrets"] is True
+    assert audit["payload_json"] == {"suppressed": True}
+    assert audit["redaction_ratio"] == 1.0
+    assert audit["scan_failed"] is True
