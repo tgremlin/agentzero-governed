@@ -17,11 +17,15 @@ class _DummyContext:
     def __init__(self) -> None:
         self.log = _DummyLog()
 
+    def get_data(self, _key):
+        return None
+
 
 def _build_agent_for_process_tools() -> Agent:
     agent = Agent.__new__(Agent)
     agent.data = {}
     agent.agent_name = "A0"
+    agent.loop_data = None
     agent.context = _DummyContext()
     agent.read_prompt = lambda _name: "misformat"
     agent.hist_add_warning = lambda _msg: None
