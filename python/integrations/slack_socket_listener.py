@@ -369,7 +369,7 @@ class SlackSocketListener:
                 await asyncio.to_thread(
                     api.post_message,
                     parsed["channel"],
-                    self._trim_reply(reply),
+                    self._trim_reply(self._to_slack_mrkdwn(reply)),
                     thread_ts,
                 )
             except Exception as exc:
@@ -380,7 +380,7 @@ class SlackSocketListener:
                     await asyncio.to_thread(
                         api.post_message,
                         parsed["channel"],
-                        self._trim_reply(err_reply),
+                        self._trim_reply(self._to_slack_mrkdwn(err_reply)),
                         thread_ts,
                     )
                 except Exception:
@@ -523,6 +523,35 @@ class SlackSocketListener:
         if len(text) <= 39000:
             return text
         return text[:39000] + "\n\n[truncated]"
+
+    def _to_slack_mrkdwn(self, text: str) -> str:
+        """
+        Deterministic conversion from common Markdown into Slack mrkdwn.
+        This lets the agent use normal Markdown while Slack output remains readable.
+        """
+        out = text.strip()
+        if not out:
+            return out
+
+        # Markdown links: [label](https://example.com) -> <https://example.com|label>
+        out = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", r"<\2|\1>", out)
+
+        # Headings: ## Title -> *Title*
+        out = re.sub(r"(?m)^\s{0,3}#{1,6}\s+(.+?)\s*$", r"*\1*", out)
+
+        # Task list items to plain bullets.
+        out = re.sub(r"(?m)^\s*[-*]\s+\[[xX]\]\s+", "• [x] ", out)
+        out = re.sub(r"(?m)^\s*[-*]\s+\[\s\]\s+", "• [ ] ", out)
+
+        # Unordered list marker normalization.
+        out = re.sub(r"(?m)^\s*[-*]\s+", "• ", out)
+
+        # Bold/strike conversions.
+        out = re.sub(r"\*\*(.+?)\*\*", r"*\1*", out)
+        out = re.sub(r"__(.+?)__", r"*\1*", out)
+        out = re.sub(r"~~(.+?)~~", r"~\1~", out)
+
+        return out
 
 
 async def _main() -> None:
