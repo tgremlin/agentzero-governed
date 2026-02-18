@@ -18,6 +18,9 @@ DEFAULT_ENVIRONMENT = "prod"
 DEFAULT_CONSENT_SCOPE = "audit_only"
 DEFAULT_ACTOR_ID = "actor_agent_runtime"
 DEFAULT_ACTOR_TYPE = "agent"
+ALLOWED_ENVIRONMENTS = {"prod", "stage", "dev"}
+ALLOWED_CONSENT_SCOPES = {"audit_only", "eval_allowed", "training_allowed"}
+ALLOWED_ACTOR_TYPES = {"human_user", "agent", "system", "policy", "tool", "service", "bot"}
 
 _REDACTED_SECRET = "[REDACTED_SECRET]"
 _REDACTED_PII = "[REDACTED_PII]"
@@ -62,6 +65,13 @@ def _stable_json(value: Any) -> str:
 
 def sha256_text(value: str) -> str:
     return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _normalize_enum(value: Any, allowed: set[str], default: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in allowed:
+        return normalized
+    return default
 
 
 def _sanitize_scalar(value: Any, key_hint: str | None) -> tuple[Any, bool, bool, int]:
@@ -145,6 +155,10 @@ def build_audit_event(
     span_id: str | None = None,
     parent_span_id: str | None = None,
 ) -> dict[str, Any]:
+    environment_norm = _normalize_enum(environment, ALLOWED_ENVIRONMENTS, DEFAULT_ENVIRONMENT)
+    actor_type_norm = _normalize_enum(actor_type, ALLOWED_ACTOR_TYPES, DEFAULT_ACTOR_TYPE)
+    consent_scope_norm = _normalize_enum(consent_scope, ALLOWED_CONSENT_SCOPES, DEFAULT_CONSENT_SCOPE)
+    event_type = str(base_event.get("type", "governance.event")).strip() or "governance.event"
     observed_at = str(base_event.get("created_at") or dt.datetime.now(dt.timezone.utc).isoformat())
     raw_payload = dict(base_event)
     sanitized = sanitize_payload(raw_payload)
@@ -155,7 +169,7 @@ def build_audit_event(
         {
             "prev_event_hash": prev_event_hash,
             "payload_hash": payload_hash,
-            "event_type": str(base_event.get("type", "governance.event")),
+            "event_type": event_type,
             "sequence_number": sequence_number,
             "run_id": run_id,
         }
@@ -168,17 +182,17 @@ def build_audit_event(
         "taxonomy_version": TAXONOMY_VERSION,
         "tenant_id": tenant_id,
         "deployment_id": deployment_id,
-        "environment": environment,
+        "environment": environment_norm,
         "run_id": run_id,
         "sequence_number": int(sequence_number),
-        "event_type": str(base_event.get("type", "governance.event")),
+        "event_type": event_type,
         "observed_at": observed_at,
         "recorded_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "trace_id": trace_id,
         "span_id": span_id,
         "parent_span_id": parent_span_id,
         "actor_id": actor_id,
-        "actor_type": actor_type,
+        "actor_type": actor_type_norm,
         "subject_kind": str(base_event.get("subject_kind") or ""),
         "subject_name": str(base_event.get("tool_name") or ""),
         "subject_version": str(base_event.get("subject_version") or ""),
@@ -188,7 +202,7 @@ def build_audit_event(
         "contains_secrets": sanitized.contains_secrets,
         "contains_pii": sanitized.contains_pii,
         "redaction_ratio": sanitized.redaction_ratio,
-        "consent_scope": consent_scope,
+        "consent_scope": consent_scope_norm,
         "integrity_chain_id": f"{tenant_id}:{run_id}",
         "prev_event_hash": prev_event_hash,
         "event_hash": event_hash,
