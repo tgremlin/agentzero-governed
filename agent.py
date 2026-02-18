@@ -39,6 +39,7 @@ from python.governance_runtime.event_taxonomy import (
     EVENT_LLM_RESPONSE_RECEIVED,
     EVENT_LLM_RESPONSE_PARSED,
     EVENT_LLM_RESPONSE_PARSE_FAILED,
+    EVENT_PROMPT_TEMPLATE_SELECTED,
     EVENT_PROMPT_FINAL_RENDERED,
     EVENT_RUN_OUTCOME,
     EVENT_USER_MESSAGE_CREATED,
@@ -659,6 +660,17 @@ class Agent:
         return prompt
 
     def read_prompt(self, file: str, **kwargs) -> str:
+        from python.helpers.governance_gate import emit_governance_runtime_event
+
+        emit_governance_runtime_event(
+            self,
+            {
+                "type": EVENT_PROMPT_TEMPLATE_SELECTED,
+                "template": str(file),
+                "kwargs_keys": sorted(str(k) for k in kwargs.keys()),
+                "source": "agent.read_prompt",
+            },
+        )
         dirs = subagents.get_paths(self, "prompts")
         prompt = files.read_prompt_file(file, _directories=dirs, _agent=self, **kwargs)
         if files.is_full_json_template(prompt):
