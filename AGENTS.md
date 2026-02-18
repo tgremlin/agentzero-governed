@@ -8,6 +8,7 @@
 - Tests: `tests/`.
 - Documentation: `docs/`.
 - Client deployment stack (this fork): `docker-compose.client.yml`, `Dockerfile.client`, `start.sh`, `stop.sh`, `tools/smoke_client_stack.py`.
+- External integration tools: `python/tools/slack.py` and `python/tools/gh.py` with prompt specs in `prompts/agent.system.tool.*.md`.
 
 ## Build, Test, and Development Commands
 Run from repository root:
@@ -41,3 +42,5 @@ Run from repository root:
 - Use `.env.client.example` as template and create local `.env`.
 - For LAN/remote browser access with login disabled, set `ALLOWED_ORIGINS` in `.env`.
 - Persist user data with `A0_DATA_DIR` so settings/chats survive rebuilds.
+- Slack integration token: `SLACK_BOT_TOKEN`.
+- GitHub integration token for write actions: `GH_TOKEN` or `GITHUB_TOKEN`.
