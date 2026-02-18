@@ -36,6 +36,8 @@ class SlackConfig:
     context_lifetime_hours: int
     project_name: str
     reconnect_delay_seconds: int
+    ack_reaction_enabled: bool
+    ack_reaction_name: str
 
     @classmethod
     def load(cls) -> "SlackConfig":
@@ -50,6 +52,8 @@ class SlackConfig:
             context_lifetime_hours=max(1, int(os.getenv("SLACK_CONTEXT_LIFETIME_HOURS", "720"))),
             project_name=(os.getenv("SLACK_PROJECT_NAME") or "").strip(),
             reconnect_delay_seconds=max(1, int(os.getenv("SLACK_SOCKET_RECONNECT_DELAY_SECONDS", "5"))),
+            ack_reaction_enabled=_is_true(os.getenv("SLACK_ACK_REACTION_ENABLED"), default=True),
+            ack_reaction_name=(os.getenv("SLACK_ACK_REACTION_NAME") or "eyes").strip() or "eyes",
         )
 
 
@@ -92,6 +96,14 @@ class SlackApi:
             if isinstance(first, dict):
                 return first
         return None
+
+    def add_reaction(self, channel: str, timestamp: str, name: str) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "channel": channel,
+            "timestamp": timestamp,
+            "name": name,
+        }
+        return self._request("POST", "reactions.add", self.bot_token, body=body)
 
     def _request(
         self,
@@ -229,6 +241,7 @@ class SlackSocketListener:
         self.bot_user_id = ""
         self.bot_id = ""
         self.bot_name = "agentzero"
+        self._reaction_missing_scope_logged = False
 
     def _load_tokens(self) -> tuple[str, str]:
         try:
@@ -314,6 +327,24 @@ class SlackSocketListener:
             parsed = await self._parse_bot_started_thread_followup(api, event)
         if not parsed:
             return
+
+        if self.config.ack_reaction_enabled:
+            try:
+                await asyncio.to_thread(
+                    api.add_reaction,
+                    parsed["channel"],
+                    parsed["message_ts"],
+                    self.config.ack_reaction_name,
+                )
+            except Exception as exc:
+                if "missing_scope" in str(exc):
+                    if not self._reaction_missing_scope_logged:
+                        PrintStyle.warning(
+                            "Slack reactions.add missing scope. Add reactions:write to bot OAuth scopes."
+                        )
+                        self._reaction_missing_scope_logged = True
+                else:
+                    PrintStyle.warning(f"Slack ack reaction failed: {exc}")
 
         context_key = parsed["context_key"]
         context_id = self.map_store.get(context_key)
@@ -404,6 +435,7 @@ class SlackSocketListener:
                 "context_key": context_key,
                 "channel": channel,
                 "thread_ts": raw_thread_ts,
+                "message_ts": str(event.get("ts", "")).strip() or raw_thread_ts,
                 "agent_message": text,
             }
         return None
@@ -416,6 +448,7 @@ class SlackSocketListener:
         text = str(event.get("text", "")).strip()
         channel_type = str(event.get("channel_type", "")).strip()
         thread_ts = str(event.get("thread_ts", "")).strip() or str(event.get("ts", "")).strip()
+        message_ts = str(event.get("ts", "")).strip() or thread_ts
         bot_id = str(event.get("bot_id", "")).strip()
         client_msg_id = str(event.get("client_msg_id", "")).strip()
 
@@ -450,6 +483,7 @@ class SlackSocketListener:
                 "context_key": context_key,
                 "channel": channel,
                 "thread_ts": thread_ts,
+                "message_ts": message_ts,
                 "agent_message": text,
             }
 
@@ -460,6 +494,7 @@ class SlackSocketListener:
                 "context_key": context_key,
                 "channel": channel,
                 "thread_ts": thread_ts,
+                "message_ts": message_ts,
                 "agent_message": cleaned or text,
             }
 
@@ -472,6 +507,7 @@ class SlackSocketListener:
                     "context_key": context_key,
                     "channel": channel,
                     "thread_ts": thread_ts,
+                    "message_ts": message_ts,
                     "agent_message": text,
                 }
         PrintStyle(font_color="yellow").print(
