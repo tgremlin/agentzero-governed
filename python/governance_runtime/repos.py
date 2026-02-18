@@ -6,6 +6,15 @@ import threading
 import uuid
 from typing import Any
 
+from python.governance_runtime.audit_events import (
+    DEFAULT_ACTOR_ID,
+    DEFAULT_ACTOR_TYPE,
+    DEFAULT_CONSENT_SCOPE,
+    DEFAULT_DEPLOYMENT_ID,
+    DEFAULT_ENVIRONMENT,
+    DEFAULT_TENANT_ID,
+    build_audit_event,
+)
 from python.governance_runtime.db import connection, is_postgres_available
 
 
@@ -61,6 +70,70 @@ CREATE TABLE IF NOT EXISTS governance.approvals (
 
 CREATE INDEX IF NOT EXISTS ix_governance_approvals_project_status
   ON governance.approvals(project_name, status);
+
+CREATE TABLE IF NOT EXISTS governance.actors (
+  actor_id TEXT PRIMARY KEY,
+  actor_type TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  auth_subject TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  disabled_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS governance.audit_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id TEXT NOT NULL UNIQUE,
+  schema_version TEXT NOT NULL,
+  taxonomy_version TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  deployment_id TEXT NOT NULL,
+  environment TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  sequence_number BIGINT NOT NULL,
+  event_type TEXT NOT NULL,
+  observed_at TIMESTAMPTZ NOT NULL,
+  recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  trace_id TEXT,
+  span_id TEXT,
+  parent_span_id TEXT,
+  actor_id TEXT NOT NULL REFERENCES governance.actors(actor_id),
+  actor_type TEXT NOT NULL,
+  subject_kind TEXT,
+  subject_name TEXT,
+  subject_version TEXT,
+  contract_id TEXT,
+  payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  payload_hash TEXT NOT NULL,
+  contains_secrets BOOLEAN NOT NULL DEFAULT FALSE,
+  contains_pii BOOLEAN NOT NULL DEFAULT FALSE,
+  redaction_ratio REAL NOT NULL DEFAULT 0.0,
+  consent_scope TEXT NOT NULL DEFAULT 'audit_only',
+  integrity_chain_id TEXT NOT NULL,
+  prev_event_hash TEXT NOT NULL,
+  event_hash TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, run_id, sequence_number)
+);
+
+CREATE INDEX IF NOT EXISTS ix_governance_audit_events_run ON governance.audit_events(tenant_id, run_id, sequence_number);
+CREATE INDEX IF NOT EXISTS ix_governance_audit_events_type_ts ON governance.audit_events(event_type, observed_at);
+CREATE INDEX IF NOT EXISTS ix_governance_audit_events_event_id ON governance.audit_events(event_id);
+
+CREATE TABLE IF NOT EXISTS governance.policy_decisions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  sequence_number BIGINT NOT NULL,
+  policy_name TEXT NOT NULL,
+  policy_version TEXT NOT NULL,
+  decision TEXT NOT NULL,
+  reason_codes TEXT[] NOT NULL DEFAULT '{}',
+  observed_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS ix_governance_policy_decisions_run ON governance.policy_decisions(tenant_id, run_id, sequence_number);
 """
 
 
@@ -190,6 +263,111 @@ class GovernancePostgresRepo:
                     VALUES (%s, %s, %s, %s, %s::jsonb)
                     """,
                     (run_id, thread_id, sequence_number, event_type, payload_json),
+                )
+                actor_id = str(event.get("actor_id") or os.environ.get("A0_ACTOR_ID", DEFAULT_ACTOR_ID))
+                actor_type = str(event.get("actor_type") or os.environ.get("A0_ACTOR_TYPE", DEFAULT_ACTOR_TYPE))
+                tenant_id = str(event.get("tenant_id") or os.environ.get("A0_TENANT_ID", DEFAULT_TENANT_ID))
+                deployment_id = str(
+                    event.get("deployment_id") or os.environ.get("A0_DEPLOYMENT_ID", DEFAULT_DEPLOYMENT_ID)
+                )
+                environment = str(event.get("environment") or os.environ.get("A0_ENVIRONMENT", DEFAULT_ENVIRONMENT))
+                consent_scope = str(event.get("consent_scope") or DEFAULT_CONSENT_SCOPE)
+                audit_run_id = str(run_id or event.get("thread_id") or "governance-unscoped")
+
+                cur.execute(
+                    """
+                    INSERT INTO governance.actors (actor_id, actor_type, display_name)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (actor_id) DO NOTHING
+                    """,
+                    (actor_id, actor_type, actor_id),
+                )
+
+                cur.execute(
+                    """
+                    SELECT sequence_number, event_hash
+                    FROM governance.audit_events
+                    WHERE tenant_id = %s AND run_id = %s
+                    ORDER BY sequence_number DESC
+                    LIMIT 1
+                    """,
+                    (tenant_id, audit_run_id),
+                )
+                prev = cur.fetchone()
+                prev_seq = int(prev[0]) if prev else 0
+                prev_hash = str(prev[1]) if prev else "sha256:0"
+
+                try:
+                    explicit_seq = int(sequence_number) if sequence_number is not None else None
+                except Exception:
+                    explicit_seq = None
+                audit_seq = explicit_seq if explicit_seq and explicit_seq > 0 else prev_seq + 1
+
+                audit_event = build_audit_event(
+                    base_event=event,
+                    tenant_id=tenant_id,
+                    deployment_id=deployment_id,
+                    environment=environment,
+                    actor_id=actor_id,
+                    actor_type=actor_type,
+                    consent_scope=consent_scope,
+                    run_id=audit_run_id,
+                    sequence_number=audit_seq,
+                    prev_event_hash=prev_hash,
+                    trace_id=str(event.get("trace_id") or "") or None,
+                    span_id=str(event.get("span_id") or "") or None,
+                    parent_span_id=str(event.get("parent_span_id") or "") or None,
+                )
+
+                cur.execute(
+                    """
+                    INSERT INTO governance.audit_events (
+                      event_id, schema_version, taxonomy_version, tenant_id, deployment_id, environment,
+                      run_id, sequence_number, event_type, observed_at, recorded_at,
+                      trace_id, span_id, parent_span_id,
+                      actor_id, actor_type, subject_kind, subject_name, subject_version, contract_id,
+                      payload_json, payload_hash, contains_secrets, contains_pii, redaction_ratio,
+                      consent_scope, integrity_chain_id, prev_event_hash, event_hash
+                    ) VALUES (
+                      %s,%s,%s,%s,%s,%s,
+                      %s,%s,%s,%s::timestamptz,%s::timestamptz,
+                      %s,%s,%s,
+                      %s,%s,%s,%s,%s,%s,
+                      %s::jsonb,%s,%s,%s,%s,
+                      %s,%s,%s,%s
+                    )
+                    """,
+                    (
+                        audit_event["event_id"],
+                        audit_event["schema_version"],
+                        audit_event["taxonomy_version"],
+                        audit_event["tenant_id"],
+                        audit_event["deployment_id"],
+                        audit_event["environment"],
+                        audit_event["run_id"],
+                        audit_event["sequence_number"],
+                        audit_event["event_type"],
+                        audit_event["observed_at"],
+                        audit_event["recorded_at"],
+                        audit_event["trace_id"],
+                        audit_event["span_id"],
+                        audit_event["parent_span_id"],
+                        audit_event["actor_id"],
+                        audit_event["actor_type"],
+                        audit_event["subject_kind"],
+                        audit_event["subject_name"],
+                        audit_event["subject_version"],
+                        audit_event["contract_id"],
+                        json.dumps(audit_event["payload_json"], sort_keys=True, default=str),
+                        audit_event["payload_hash"],
+                        bool(audit_event["contains_secrets"]),
+                        bool(audit_event["contains_pii"]),
+                        float(audit_event["redaction_ratio"]),
+                        audit_event["consent_scope"],
+                        audit_event["integrity_chain_id"],
+                        audit_event["prev_event_hash"],
+                        audit_event["event_hash"],
+                    ),
                 )
             conn.commit()
 

@@ -91,6 +91,27 @@ def _append_governance_event(event: dict[str, Any]) -> None:
         f.write(_stable_json(event) + "\n")
 
 
+def _emit_governance_event(agent: Any, event: dict[str, Any]) -> None:
+    context = getattr(agent, "context", None)
+    enriched = dict(event)
+    if "created_at" not in enriched:
+        enriched["created_at"] = _now_iso()
+    if context is not None:
+        context_id = str(getattr(context, "id", "") or "")
+        if context_id:
+            enriched.setdefault("thread_id", context_id)
+            enriched.setdefault("run_id", context_id)
+        seq_no = getattr(context, "message_id", None)
+        if seq_no is not None:
+            try:
+                enriched.setdefault("sequence_number", int(seq_no))
+            except Exception:
+                pass
+    enriched.setdefault("actor_id", "actor_policy_engine")
+    enriched.setdefault("actor_type", "policy")
+    _append_governance_event(enriched)
+
+
 def _load_project_governance(agent: Any) -> dict[str, Any]:
     from python.helpers import projects
 
@@ -388,7 +409,7 @@ def _persist_approval_if_needed(agent: Any, *, project_name: str, tool_name: str
         "tool_call_hash": tool_call_hash,
         "tool_args": _sanitize_tool_args(tool_args),
     }
-    _append_governance_event(event)
+    _emit_governance_event(agent, event)
 
     context = getattr(agent, "context", None)
     if context is not None:
@@ -505,6 +526,19 @@ def evaluate_tool_gate(agent: Any, tool_name: str, tool_args: dict[str, Any] | N
         elif status == "denied":
             decision = "deny"
 
+    policy_event = {
+        "type": "policy.check.decision",
+        "project_name": project_name,
+        "tool_name": tool_name,
+        "risk": risk,
+        "decision": decision,
+        "readonly_terminal": is_readonly_terminal,
+        "tool_call_hash": tool_call_hash,
+        "unknown_tool": unknown_tool,
+        "mode": str(policy.get("mode", "standard")),
+    }
+    _emit_governance_event(agent, policy_event)
+
     if decision == "deny":
         try:
             agent.context.log.log(
@@ -608,7 +642,7 @@ def resolve_approval(agent: Any, approval_id: str, decision: str, rationale: str
         "risk": (payload or {}).get("risk"),
         "tool_call_hash": (payload or {}).get("tool_call_hash"),
     }
-    _append_governance_event(event)
+    _emit_governance_event(agent, event)
 
     context = getattr(agent, "context", None)
     if context is not None:
