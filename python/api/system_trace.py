@@ -1,5 +1,5 @@
 from python.helpers.api import ApiHandler, Request, Response
-from python.helpers.system_trace_store import load_system_trace_items
+from python.helpers.system_trace_store import load_system_trace_items, load_system_trace_summary
 
 
 class SystemTrace(ApiHandler):
@@ -16,8 +16,10 @@ class SystemTrace(ApiHandler):
         offset = int(input.get("offset", 0) or 0)
         offset = max(0, offset)
         type_filter = str(input.get("type", "")).strip().lower()
+        project_name = str(input.get("project_name", "")).strip()
 
-        items = load_system_trace_items(type_filter=type_filter)
+        items = load_system_trace_items(type_filter=type_filter, project_name=project_name)
+        summary = load_system_trace_summary(project_name=project_name)
         total = len(items)
         page = items[offset : offset + limit]
 
@@ -30,6 +32,7 @@ class SystemTrace(ApiHandler):
             "offset": offset,
             "limit": limit,
             "items": page,
+            "summary": summary,
             "types": [
                 {"key": "trace_spans", "label": "Trace Spans", "status": "planned"},
                 {"key": "trace_events", "label": "Trace Events", "status": "planned"},

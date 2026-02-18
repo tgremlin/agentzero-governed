@@ -1,6 +1,6 @@
 import json
 
-from python.helpers.system_trace_store import load_system_trace_items
+from python.helpers.system_trace_store import load_system_trace_items, load_system_trace_summary
 
 
 def test_load_system_trace_items_reads_dataset_and_training_entries(tmp_path, monkeypatch):
@@ -45,6 +45,8 @@ def test_load_system_trace_items_reads_dataset_and_training_entries(tmp_path, mo
     datasets = load_system_trace_items(type_filter="dataset_exports")
     assert len(datasets) == 1
     assert datasets[0]["project_name"] == "p1"
+    assert load_system_trace_items(project_name="p1")
+    assert load_system_trace_items(project_name="other") == []
 
 
 def test_load_system_trace_items_includes_training_lifecycle(tmp_path, monkeypatch):
@@ -71,3 +73,7 @@ def test_load_system_trace_items_includes_training_lifecycle(tmp_path, monkeypat
     assert len(rows) == 1
     assert rows[0]["stage"] == "eval"
     assert rows[0]["status"] == "succeeded"
+
+    summary = load_system_trace_summary(project_name="p1")
+    assert summary["sources"]["training_lifecycle"] == 1
+    assert summary["lifecycle_summary"]["stage_status_counts"]["eval"]["succeeded"] == 1

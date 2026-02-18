@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from python.helpers.governance_training_dashboard import build_training_dashboard_snapshot
 from python.helpers.governance_training_lifecycle import load_training_lifecycle_events
 
 
@@ -106,7 +107,7 @@ def _training_lifecycle() -> list[dict[str, Any]]:
     return out
 
 
-def load_system_trace_items(*, type_filter: str = "") -> list[dict[str, Any]]:
+def load_system_trace_items(*, type_filter: str = "", project_name: str = "") -> list[dict[str, Any]]:
     root = _trace_root()
     dataset_items = _dataset_exports(root)
     training_items = _training_decisions(root)
@@ -123,7 +124,17 @@ def load_system_trace_items(*, type_filter: str = "") -> list[dict[str, Any]]:
             return dt.datetime.fromtimestamp(0, tz=dt.timezone.utc)
 
     all_items.sort(key=_item_ts, reverse=True)
-    wanted = str(type_filter).strip().lower()
-    if not wanted:
-        return all_items
-    return [item for item in all_items if str(item.get("kind", "")).strip().lower() == wanted]
+    wanted_type = str(type_filter).strip().lower()
+    wanted_project = str(project_name).strip()
+    out: list[dict[str, Any]] = []
+    for item in all_items:
+        if wanted_type and str(item.get("kind", "")).strip().lower() != wanted_type:
+            continue
+        if wanted_project and str(item.get("project_name", "")).strip() != wanted_project:
+            continue
+        out.append(item)
+    return out
+
+
+def load_system_trace_summary(*, project_name: str = "") -> dict[str, Any]:
+    return build_training_dashboard_snapshot(load_system_trace_items(), project_name=project_name)
