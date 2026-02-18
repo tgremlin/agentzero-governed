@@ -143,6 +143,20 @@ def _emit_run_started_once(agent: Any, project_name: str) -> None:
     )
 
 
+def emit_governance_runtime_event(agent: Any, event: dict[str, Any]) -> None:
+    """Emit deterministic runtime event only when governance is enabled for active project."""
+    gov = _load_project_governance(agent)
+    if not bool(gov.get("governance_enabled", False)):
+        return
+    project_name = str(gov.get("project_name") or "").strip()
+    if not project_name:
+        return
+    _emit_run_started_once(agent, project_name)
+    enriched = dict(event or {})
+    enriched.setdefault("project_name", project_name)
+    _emit_governance_event(agent, enriched)
+
+
 def _load_project_governance(agent: Any) -> dict[str, Any]:
     from python.helpers import projects
 

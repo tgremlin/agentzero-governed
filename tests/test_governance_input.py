@@ -264,3 +264,34 @@ def test_run_started_is_emitted_once_per_context(monkeypatch):
 
     run_started_events = [e for e in events if e.get("type") == "run.started"]
     assert len(run_started_events) == 1
+
+
+def test_emit_governance_runtime_event_only_when_enabled(monkeypatch):
+    from python.helpers import governance_gate
+
+    events: list[dict] = []
+    agent = _DummyAgent()
+
+    monkeypatch.setattr(
+        governance_gate,
+        "_load_project_governance",
+        lambda _agent: {"project_name": "p1", "governance_enabled": True},
+    )
+    monkeypatch.setattr(governance_gate, "_append_governance_event", lambda event: events.append(event))
+
+    governance_gate.emit_governance_runtime_event(
+        agent,
+        {"type": "llm.response.parsed", "tool_name": "search_engine"},
+    )
+
+    assert any(e.get("type") == "run.started" for e in events)
+    assert any(e.get("type") == "llm.response.parsed" for e in events)
+
+    events.clear()
+    monkeypatch.setattr(
+        governance_gate,
+        "_load_project_governance",
+        lambda _agent: {"project_name": "p1", "governance_enabled": False},
+    )
+    governance_gate.emit_governance_runtime_event(agent, {"type": "llm.response.parse_failed"})
+    assert events == []
