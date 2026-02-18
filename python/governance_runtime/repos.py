@@ -16,6 +16,10 @@ from python.governance_runtime.audit_events import (
     build_audit_event,
 )
 from python.governance_runtime.db import connection, is_postgres_available
+from python.governance_runtime.event_taxonomy import (
+    ALL_POLICY_DECISIONS,
+    EVENT_POLICY_CHECK_DECISION,
+)
 
 
 _GOVERNANCE_DDL = """
@@ -173,11 +177,11 @@ def _build_policy_decision_record(
     event: dict[str, Any],
     audit_event: dict[str, Any],
 ) -> dict[str, Any] | None:
-    if str(audit_event.get("event_type", "")).strip() != "policy.check.decision":
+    if str(audit_event.get("event_type", "")).strip() != EVENT_POLICY_CHECK_DECISION:
         return None
 
     decision = str(event.get("decision", "")).strip().lower()
-    if decision not in {"allow", "deny", "require_approval", "transform", "redact", "route", "quarantine"}:
+    if decision not in ALL_POLICY_DECISIONS:
         return None
 
     reason_codes_raw = event.get("reason_codes")
