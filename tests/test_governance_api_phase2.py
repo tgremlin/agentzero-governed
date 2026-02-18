@@ -254,12 +254,34 @@ def test_training_candidates_consent_aware_exports(monkeypatch):
     assert "r3" not in training_body
 
 
-def test_system_trace_scaffold_contract():
+def test_system_trace_returns_materialized_items(monkeypatch):
+    import python.api.system_trace as mod
+
     handler = SystemTrace(None, threading.Lock())
+    monkeypatch.setattr(
+        mod,
+        "load_system_trace_items",
+        lambda type_filter="": [
+            {"kind": "dataset_exports", "id": "a", "generated_at": "2026-02-18T10:00:00+00:00"},
+            {"kind": "training_decisions", "id": "b", "generated_at": "2026-02-18T10:01:00+00:00"},
+        ]
+        if not type_filter
+        else [{"kind": type_filter, "id": "x"}],
+    )
+
     out = __import__("asyncio").run(handler.process({}, _DummyRequest("POST")))
     assert out["ok"] is True
-    assert out["coming_soon"] is True
+    assert out["coming_soon"] is False
+    assert out["count"] == 2
+    assert out["total"] == 2
     assert isinstance(out.get("types"), list)
+    assert any(item.get("key") == "training_decisions" for item in out["types"])
+
+    filtered = __import__("asyncio").run(
+        handler.process({"type": "dataset_exports"}, _DummyRequest("POST"))
+    )
+    assert filtered["count"] == 1
+    assert filtered["items"][0]["kind"] == "dataset_exports"
 
 
 def test_training_candidates_update_and_override(monkeypatch):
