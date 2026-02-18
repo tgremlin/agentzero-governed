@@ -238,7 +238,25 @@ def test_policy_check_decision_event_is_emitted(monkeypatch):
     evaluate_tool_gate(agent, "search_engine", {"query": "agent tracing"})
 
     assert any(e.get("type") == "policy.check.decision" for e in events)
+    assert any(e.get("type") == "tool.call.requested" for e in events)
+    assert any(e.get("type") == "run.started" for e in events)
     policy_event = next(e for e in events if e.get("type") == "policy.check.decision")
     assert policy_event.get("tool_name") == "search_engine"
     assert policy_event.get("decision") == "allow"
     assert policy_event.get("thread_id") == "ctx_test_1"
+
+
+def test_run_started_is_emitted_once_per_context(monkeypatch):
+    from python.helpers import governance_gate, projects
+
+    events: list[dict] = []
+    monkeypatch.setattr(projects, "get_context_project_name", lambda _ctx: "p1")
+    monkeypatch.setattr(projects, "load_basic_project_data", lambda _name: _policy(True, "standard"))
+    monkeypatch.setattr(governance_gate, "_append_governance_event", lambda event: events.append(event))
+
+    agent = _DummyAgent()
+    evaluate_tool_gate(agent, "search_engine", {"query": "first"})
+    evaluate_tool_gate(agent, "search_engine", {"query": "second"})
+
+    run_started_events = [e for e in events if e.get("type") == "run.started"]
+    assert len(run_started_events) == 1

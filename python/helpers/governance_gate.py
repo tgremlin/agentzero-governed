@@ -18,6 +18,7 @@ from python.governance_runtime.repos import (
 
 GATE_TOKEN_KEY = "__governance_gate_evaluated"
 TOOL_CALL_HASH_KEY = "__governance_tool_call_hash"
+RUN_STARTED_SENT_KEY = "__governance_run_started_emitted"
 
 
 def _now_iso() -> str:
@@ -110,6 +111,26 @@ def _emit_governance_event(agent: Any, event: dict[str, Any]) -> None:
     enriched.setdefault("actor_id", "actor_policy_engine")
     enriched.setdefault("actor_type", "policy")
     _append_governance_event(enriched)
+
+
+def _emit_run_started_once(agent: Any, project_name: str) -> None:
+    if not project_name:
+        return
+    context = getattr(agent, "context", None)
+    if context is None:
+        return
+    marker = getattr(context, RUN_STARTED_SENT_KEY, False)
+    if marker:
+        return
+    setattr(context, RUN_STARTED_SENT_KEY, True)
+    _emit_governance_event(
+        agent,
+        {
+            "type": "run.started",
+            "project_name": project_name,
+            "source": "governance_gate",
+        },
+    )
 
 
 def _load_project_governance(agent: Any) -> dict[str, Any]:
@@ -478,6 +499,8 @@ def evaluate_tool_gate(agent: Any, tool_name: str, tool_args: dict[str, Any] | N
             "tool_call_hash": "",
         }
 
+    _emit_run_started_once(agent, project_name)
+
     risk, unknown_tool = _risk_for_tool(tool_name, args, policy)
     is_readonly_terminal = (
         tool_name == "code_execution_tool"
@@ -508,6 +531,17 @@ def evaluate_tool_gate(agent: Any, tool_name: str, tool_args: dict[str, Any] | N
         )
 
     tool_call_hash = _deterministic_tool_call_hash(project_name, tool_name, args)
+    _emit_governance_event(
+        agent,
+        {
+            "type": "tool.call.requested",
+            "project_name": project_name,
+            "tool_name": tool_name,
+            "tool_call_hash": tool_call_hash,
+            "tool_args": _sanitize_tool_args(args),
+            "mode": str(policy.get("mode", "standard")),
+        },
+    )
     token = f"gov_{tool_call_hash[:20]}"
     approval_id: str | None = None
 
