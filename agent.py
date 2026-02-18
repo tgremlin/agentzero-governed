@@ -35,6 +35,8 @@ from python.helpers.localization import Localization
 from python.helpers.extension import call_extensions
 from python.helpers.errors import RepairableException
 from python.governance_runtime.event_taxonomy import (
+    EVENT_LLM_REQUEST_SENT,
+    EVENT_LLM_RESPONSE_RECEIVED,
     EVENT_LLM_RESPONSE_PARSED,
     EVENT_LLM_RESPONSE_PARSE_FAILED,
 )
@@ -770,6 +772,7 @@ class Agent:
         background: bool = False,
     ):
         model = self.get_utility_model()
+        from python.helpers.governance_gate import emit_governance_runtime_event
 
         # call extensions
         call_data = {
@@ -780,6 +783,15 @@ class Agent:
             "background": background,
         }
         await self.call_extensions("util_model_call_before", call_data=call_data)
+        emit_governance_runtime_event(
+            self,
+            {
+                "type": EVENT_LLM_REQUEST_SENT,
+                "model_role": "utility",
+                "message_length": len(str(call_data.get("message", "") or "")),
+                "source": "agent.call_utility_model",
+            },
+        )
 
         # propagate stream to callback if set
         async def stream_callback(chunk: str, total: str):
@@ -794,6 +806,15 @@ class Agent:
                 self.rate_limiter_callback if not call_data["background"] else None
             ),
         )
+        emit_governance_runtime_event(
+            self,
+            {
+                "type": EVENT_LLM_RESPONSE_RECEIVED,
+                "model_role": "utility",
+                "response_length": len(str(response or "")),
+                "source": "agent.call_utility_model",
+            },
+        )
 
         return response
 
@@ -805,9 +826,19 @@ class Agent:
         background: bool = False,
     ):
         response = ""
+        from python.helpers.governance_gate import emit_governance_runtime_event
 
         # model class
         model = self.get_chat_model()
+        emit_governance_runtime_event(
+            self,
+            {
+                "type": EVENT_LLM_REQUEST_SENT,
+                "model_role": "chat",
+                "messages_count": len(messages),
+                "source": "agent.call_chat_model",
+            },
+        )
 
         # call model
         response, reasoning = await model.unified_call(
@@ -817,6 +848,15 @@ class Agent:
             rate_limiter_callback=(
                 self.rate_limiter_callback if not background else None
             ),
+        )
+        emit_governance_runtime_event(
+            self,
+            {
+                "type": EVENT_LLM_RESPONSE_RECEIVED,
+                "model_role": "chat",
+                "response_length": len(str(response or "")),
+                "source": "agent.call_chat_model",
+            },
         )
 
         return response, reasoning
