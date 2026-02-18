@@ -54,6 +54,14 @@ def _episode_id(run_id: str, events: list[dict[str, Any]]) -> str:
     return "ep_" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
+def _event_identity(event: dict[str, Any]) -> str:
+    event_id = str(event.get("event_id", "")).strip()
+    if event_id:
+        return event_id
+    payload = json.dumps(event, sort_keys=True, default=str)
+    return "ev_" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
 def _consent_for_events(events: list[dict[str, Any]]) -> str:
     best = "audit_only"
     for event in events:
@@ -100,6 +108,7 @@ def build_episode_records(
             "",
         )
         quality = score_episode(run_events)
+        source_event_ids = [_event_identity(event) for event in run_events]
 
         records.append(
             {
@@ -118,6 +127,7 @@ def build_episode_records(
                     "tier": quality["tier"],
                 },
                 "quality": quality,
+                "source_event_ids": source_event_ids,
                 "events": run_events,
             }
         )
@@ -139,6 +149,15 @@ def build_dataset_manifest(
     jsonl_payload = episode_records_to_jsonl(records)
     digest = hashlib.sha256(jsonl_payload.encode("utf-8")).hexdigest()
     run_ids = sorted({str(record.get("run_id", "")) for record in records if str(record.get("run_id", "")).strip()})
+    source_event_ids = sorted(
+        {
+            str(event_id).strip()
+            for record in records
+            for event_id in list(record.get("source_event_ids", []))
+            if str(event_id).strip()
+        }
+    )
+    source_event_digest = hashlib.sha256(json.dumps(source_event_ids, sort_keys=True).encode("utf-8")).hexdigest()
     return {
         "dataset_version": DATASET_VERSION,
         "purpose": purpose,
@@ -146,5 +165,7 @@ def build_dataset_manifest(
         "record_count": len(records),
         "run_count": len(run_ids),
         "run_ids": run_ids,
+        "source_event_count": len(source_event_ids),
+        "source_event_ids_sha256": source_event_digest,
         "sha256": digest,
     }

@@ -10,6 +10,7 @@ def test_build_episode_records_groups_by_run_and_sorts_events():
     events = [
         {
             "type": "run.outcome",
+            "event_id": "evt-002",
             "run_id": "run-b",
             "project_name": "p1",
             "created_at": "2026-02-18T10:02:00+00:00",
@@ -18,6 +19,7 @@ def test_build_episode_records_groups_by_run_and_sorts_events():
         },
         {
             "type": "run.started",
+            "event_id": "evt-001",
             "run_id": "run-b",
             "project_name": "p1",
             "created_at": "2026-02-18T10:01:00+00:00",
@@ -39,6 +41,7 @@ def test_build_episode_records_groups_by_run_and_sorts_events():
     assert records[1]["run_id"] == "run-b"
     assert records[1]["events"][0]["type"] == "run.started"
     assert records[1]["events"][1]["type"] == "run.outcome"
+    assert records[1]["source_event_ids"] == ["evt-001", "evt-002"]
     assert "quality_score" in records[1]["labels"]
     assert "train_eligible" in records[1]["labels"]
     assert "gold" in records[1]["labels"]
@@ -87,6 +90,7 @@ def test_build_dataset_manifest_is_deterministic():
             "purpose": "eval",
             "labels": {"outcome": "unknown", "event_count": 1},
             "quality": {"quality_score": 0.5, "train_eligible": False, "gold": False, "tier": "tier1"},
+            "source_event_ids": ["evt-100"],
             "events": [{"type": "run.started", "run_id": "run-a"}],
         }
     ]
@@ -95,4 +99,17 @@ def test_build_dataset_manifest_is_deterministic():
     assert manifest["record_count"] == 1
     assert manifest["run_count"] == 1
     assert manifest["run_ids"] == ["run-a"]
+    assert manifest["source_event_count"] == 1
+    assert len(str(manifest["source_event_ids_sha256"])) == 64
     assert len(str(manifest["sha256"])) == 64
+
+
+def test_build_episode_records_generates_stable_source_ids_without_event_id():
+    events = [
+        {"type": "run.started", "run_id": "run-c", "created_at": "2026-02-18T09:00:00+00:00", "consent_scope": "eval_allowed"},
+        {"type": "run.outcome", "run_id": "run-c", "created_at": "2026-02-18T09:01:00+00:00", "consent_scope": "eval_allowed"},
+    ]
+    first = build_episode_records(events, purpose="eval")[0]["source_event_ids"]
+    second = build_episode_records(events, purpose="eval")[0]["source_event_ids"]
+    assert first == second
+    assert all(str(item).startswith("ev_") for item in first)
