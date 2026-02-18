@@ -56,7 +56,7 @@ services:
       [
         "bash",
         "-lc",
-        "PYTHONPATH=/a0 /opt/pyenv/versions/3.12.4/bin/pytest -q tests/test_governance_api_phase2.py tests/test_governance_temporal_signals.py tests/test_governance_persistence_db.py tests/test_governance_input.py"
+        "PYTHONPATH=/a0 /opt/pyenv/versions/3.12.4/bin/pytest -q tests/test_governance_api_phase2.py tests/test_governance_temporal_signals.py tests/test_governance_persistence_db.py tests/test_governance_input.py tests/test_governance_llm_events.py tests/test_agent_misformat_guard.py tests/test_governance_user_message_events.py tests/test_governance_prompt_template_events.py"
       ]
 
 volumes:
