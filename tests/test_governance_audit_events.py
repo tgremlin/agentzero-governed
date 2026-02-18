@@ -51,3 +51,28 @@ def test_build_audit_event_hash_chain_changes_with_prev_hash():
     )
     assert second["prev_event_hash"] == first["event_hash"]
     assert second["event_hash"] != first["event_hash"]
+
+
+def test_build_audit_event_normalizes_invalid_enums_to_defaults():
+    audit = build_audit_event(
+        base_event={"type": "policy.check.decision", "tool_name": "search_engine"},
+        run_id="run-3",
+        sequence_number=1,
+        prev_event_hash="sha256:0",
+        environment="invalid-env",
+        actor_type="invalid-actor",
+        consent_scope="invalid-scope",
+    )
+    assert audit["environment"] == "prod"
+    assert audit["actor_type"] == "agent"
+    assert audit["consent_scope"] == "audit_only"
+
+
+def test_build_audit_event_empty_type_falls_back_to_governance_event():
+    audit = build_audit_event(
+        base_event={"type": "   "},
+        run_id="run-4",
+        sequence_number=1,
+        prev_event_hash="sha256:0",
+    )
+    assert audit["event_type"] == "governance.event"
