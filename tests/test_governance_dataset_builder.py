@@ -38,6 +38,9 @@ def test_build_episode_records_groups_by_run_and_sorts_events():
     assert records[1]["run_id"] == "run-b"
     assert records[1]["events"][0]["type"] == "run.started"
     assert records[1]["events"][1]["type"] == "run.outcome"
+    assert "quality_score" in records[1]["labels"]
+    assert "train_eligible" in records[1]["labels"]
+    assert "gold" in records[1]["labels"]
 
 
 def test_build_episode_records_applies_consent_by_purpose():

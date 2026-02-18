@@ -6,6 +6,7 @@ import json
 from collections import defaultdict
 from typing import Any
 
+from python.helpers.governance_dataset_quality import score_episode
 
 DATASET_VERSION = "governance.flywheel.v1"
 CONSENT_ORDER = {"audit_only": 0, "eval_allowed": 1, "training_allowed": 2}
@@ -98,6 +99,7 @@ def build_episode_records(
             ),
             "",
         )
+        quality = score_episode(run_events)
 
         records.append(
             {
@@ -110,7 +112,12 @@ def build_episode_records(
                 "labels": {
                     "outcome": outcome or "unknown",
                     "event_count": len(run_events),
+                    "quality_score": quality["quality_score"],
+                    "train_eligible": quality["train_eligible"],
+                    "gold": quality["gold"],
+                    "tier": quality["tier"],
                 },
+                "quality": quality,
                 "events": run_events,
             }
         )
@@ -121,4 +128,3 @@ def build_episode_records(
 
 def episode_records_to_jsonl(records: list[dict[str, Any]]) -> str:
     return "".join(json.dumps(record, sort_keys=True, default=str) + "\n" for record in records)
-
