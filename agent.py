@@ -39,6 +39,7 @@ from python.governance_runtime.event_taxonomy import (
     EVENT_LLM_RESPONSE_RECEIVED,
     EVENT_LLM_RESPONSE_PARSED,
     EVENT_LLM_RESPONSE_PARSE_FAILED,
+    EVENT_RUN_OUTCOME,
 )
 
 
@@ -1087,6 +1088,17 @@ class Agent:
                 self.context.log.log(
                     type="warning",
                     content=f"{self.agent_name}: {loop_break_msg}",
+                )
+                emit_governance_runtime_event(
+                    self,
+                    {
+                        "type": EVENT_RUN_OUTCOME,
+                        "outcome": "failure",
+                        "status": "error",
+                        "reason": "parse_failed_exhausted",
+                        "misformat_streak": misformat_streak,
+                        "source": "agent.process_tools",
+                    },
                 )
                 self.set_data(Agent.DATA_NAME_MISFORMAT_STREAK, 0)
                 return loop_break_msg
