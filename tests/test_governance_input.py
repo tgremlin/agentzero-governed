@@ -285,7 +285,9 @@ def test_emit_governance_runtime_event_only_when_enabled(monkeypatch):
     )
 
     assert any(e.get("type") == "run.started" for e in events)
-    assert any(e.get("type") == "llm.response.parsed" for e in events)
+    runtime_event = next(e for e in events if e.get("type") == "llm.response.parsed")
+    assert runtime_event["actor_id"] == "actor_agent_runtime"
+    assert runtime_event["actor_type"] == "agent"
 
     events.clear()
     monkeypatch.setattr(

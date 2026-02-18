@@ -154,6 +154,9 @@ def emit_governance_runtime_event(agent: Any, event: dict[str, Any]) -> None:
     _emit_run_started_once(agent, project_name)
     enriched = dict(event or {})
     enriched.setdefault("project_name", project_name)
+    # Runtime events are emitted by the agent execution path (not policy engine).
+    enriched.setdefault("actor_id", "actor_agent_runtime")
+    enriched.setdefault("actor_type", "agent")
     _emit_governance_event(agent, enriched)
 
 
