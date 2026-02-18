@@ -41,6 +41,7 @@ from python.governance_runtime.event_taxonomy import (
     EVENT_LLM_RESPONSE_PARSE_FAILED,
     EVENT_PROMPT_FINAL_RENDERED,
     EVENT_RUN_OUTCOME,
+    EVENT_USER_MESSAGE_CREATED,
 )
 
 
@@ -685,6 +686,19 @@ class Agent:
 
     def hist_add_user_message(self, message: UserMessage, intervention: bool = False):
         self.history.new_topic()  # user message starts a new topic in history
+        from python.helpers.governance_gate import emit_governance_runtime_event
+
+        emit_governance_runtime_event(
+            self,
+            {
+                "type": EVENT_USER_MESSAGE_CREATED,
+                "message_length": len(str(message.message or "")),
+                "attachments_count": len(message.attachments or []),
+                "system_message_count": len(message.system_message or []),
+                "intervention": bool(intervention),
+                "source": "agent.hist_add_user_message",
+            },
+        )
 
         # load message template based on intervention
         if intervention:
