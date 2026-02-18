@@ -12,6 +12,15 @@ def _utc_now() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
 
+def _is_dataset_artifact(path: pathlib.Path) -> bool:
+    name = path.name.lower()
+    if name.endswith(".jsonl"):
+        return True
+    if name.endswith(".manifest.json"):
+        return True
+    return False
+
+
 def apply_retention(
     datasets_dir: pathlib.Path,
     *,
@@ -38,7 +47,7 @@ def apply_retention(
     for path in sorted(datasets_dir.glob("**/*")):
         if not path.is_file():
             continue
-        if path.suffix not in {".jsonl", ".json"}:
+        if not _is_dataset_artifact(path):
             continue
         checked += 1
         modified = dt.datetime.fromtimestamp(path.stat().st_mtime, tz=dt.timezone.utc)

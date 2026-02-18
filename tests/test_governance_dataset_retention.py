@@ -42,3 +42,16 @@ def test_apply_retention_deletes_old_artifacts(tmp_path: Path):
     assert not old_jsonl.exists()
     assert not old_manifest.exists()
     assert fresh_manifest.exists()
+
+
+def test_apply_retention_ignores_non_dataset_json_files(tmp_path: Path):
+    old_misc = tmp_path / "misc" / "notes.json"
+    old_manifest = tmp_path / "misc" / "dataset.manifest.json"
+    _touch_with_age(old_misc, days_old=30)
+    _touch_with_age(old_manifest, days_old=30)
+
+    result = apply_retention(tmp_path, max_age_days=7, dry_run=False)
+    assert result["checked"] == 1
+    assert result["deleted"] == ["misc/dataset.manifest.json"]
+    assert old_misc.exists()
+    assert not old_manifest.exists()
