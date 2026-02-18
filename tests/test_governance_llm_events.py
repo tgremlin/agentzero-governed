@@ -29,9 +29,11 @@ def test_call_chat_model_emits_llm_request_and_response_events(monkeypatch):
 
     assert out == "ok-response"
     event_types = [e.get("type") for e in emitted]
-    assert event_types == ["llm.request.sent", "llm.response.received"]
+    assert event_types == ["prompt.final.rendered", "llm.request.sent", "llm.response.received"]
     assert emitted[0]["model_role"] == "chat"
+    assert emitted[0]["prompt_hash"]
     assert emitted[1]["model_role"] == "chat"
+    assert emitted[2]["model_role"] == "chat"
 
 
 def test_call_utility_model_emits_llm_request_and_response_events(monkeypatch):
@@ -45,6 +47,8 @@ def test_call_utility_model_emits_llm_request_and_response_events(monkeypatch):
 
     assert out == "ok-response"
     event_types = [e.get("type") for e in emitted]
-    assert event_types == ["llm.request.sent", "llm.response.received"]
+    assert event_types == ["prompt.final.rendered", "llm.request.sent", "llm.response.received"]
     assert emitted[0]["model_role"] == "utility"
+    assert emitted[0]["prompt_hash"]
     assert emitted[1]["model_role"] == "utility"
+    assert emitted[2]["model_role"] == "utility"
