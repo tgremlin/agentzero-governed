@@ -128,3 +128,23 @@ def build_episode_records(
 
 def episode_records_to_jsonl(records: list[dict[str, Any]]) -> str:
     return "".join(json.dumps(record, sort_keys=True, default=str) + "\n" for record in records)
+
+
+def build_dataset_manifest(
+    records: list[dict[str, Any]],
+    *,
+    purpose: str,
+    project_name: str | None,
+) -> dict[str, Any]:
+    jsonl_payload = episode_records_to_jsonl(records)
+    digest = hashlib.sha256(jsonl_payload.encode("utf-8")).hexdigest()
+    run_ids = sorted({str(record.get("run_id", "")) for record in records if str(record.get("run_id", "")).strip()})
+    return {
+        "dataset_version": DATASET_VERSION,
+        "purpose": purpose,
+        "project_name": project_name,
+        "record_count": len(records),
+        "run_count": len(run_ids),
+        "run_ids": run_ids,
+        "sha256": digest,
+    }

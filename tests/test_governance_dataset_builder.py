@@ -1,5 +1,6 @@
 from python.helpers.governance_dataset_builder import (
     DATASET_VERSION,
+    build_dataset_manifest,
     build_episode_records,
     episode_records_to_jsonl,
 )
@@ -73,3 +74,25 @@ def test_episode_records_to_jsonl_is_deterministic():
     payload = episode_records_to_jsonl(records)
     assert payload.count("\n") == 1
     assert "\"episode_id\": \"ep_x\"" in payload
+
+
+def test_build_dataset_manifest_is_deterministic():
+    records = [
+        {
+            "dataset_version": DATASET_VERSION,
+            "episode_id": "ep_a",
+            "run_id": "run-a",
+            "project_name": "p1",
+            "consent_scope": "eval_allowed",
+            "purpose": "eval",
+            "labels": {"outcome": "unknown", "event_count": 1},
+            "quality": {"quality_score": 0.5, "train_eligible": False, "gold": False, "tier": "tier1"},
+            "events": [{"type": "run.started", "run_id": "run-a"}],
+        }
+    ]
+    manifest = build_dataset_manifest(records, purpose="eval", project_name="p1")
+    assert manifest["dataset_version"] == DATASET_VERSION
+    assert manifest["record_count"] == 1
+    assert manifest["run_count"] == 1
+    assert manifest["run_ids"] == ["run-a"]
+    assert len(str(manifest["sha256"])) == 64
