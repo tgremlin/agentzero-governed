@@ -379,6 +379,18 @@ class SlackSocketListener:
                 "thread_ts": thread_ts,
                 "agent_message": cleaned or text,
             }
+
+        # Continue an existing channel thread conversation without requiring another mention.
+        # We only accept channel messages when the thread is already mapped to a context.
+        if event_type == "message" and channel_type in {"channel", "group"}:
+            context_key = f"channel:{channel}:thread:{thread_ts}"
+            if self.map_store.get(context_key):
+                return {
+                    "context_key": context_key,
+                    "channel": channel,
+                    "thread_ts": thread_ts,
+                    "agent_message": text,
+                }
         PrintStyle(font_color="yellow").print(
             f"Slack event ignored: type={event_type} subtype={subtype} channel_type={channel_type} allow_dm={allow_dm} allow_mentions={allow_mentions}"
         )
