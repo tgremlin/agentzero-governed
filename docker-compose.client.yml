@@ -106,5 +106,26 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  slack-socket-listener:
+    image: ${APP_IMAGE_NAME:-agentzero-governed}:latest
+    container_name: agentzero-slack-socket-listener
+    command: ["/opt/venv-a0/bin/python", "-m", "python.integrations.slack_socket_listener"]
+    environment:
+      PYTHONPATH: /a0
+      SLACK_SOCKET_ENABLED: ${SLACK_SOCKET_ENABLED:-false}
+      SLACK_SOCKET_MODE: ${SLACK_SOCKET_MODE:-both}
+      SLACK_SOCKET_REPLY_IN_THREAD: ${SLACK_SOCKET_REPLY_IN_THREAD:-true}
+      SLACK_CONTEXT_LIFETIME_HOURS: ${SLACK_CONTEXT_LIFETIME_HOURS:-720}
+      SLACK_A0_API_URL: ${SLACK_A0_API_URL:-http://app:5000}
+      SLACK_PROJECT_NAME: ${SLACK_PROJECT_NAME:-}
+    volumes:
+      - ${A0_DATA_DIR:-./client-data}/usr:/a0/usr
+      - ${A0_DATA_DIR:-./client-data}/tmp:/a0/tmp
+      - ${A0_DATA_DIR:-./client-data}/logs:/a0/logs
+    depends_on:
+      app:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   postgres-data:

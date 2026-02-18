@@ -107,3 +107,26 @@ Stop stack:
 ```bash
 ./stop.sh
 ```
+
+## Slack Socket Listener (Optional)
+
+This fork can bridge inbound Slack events to Agent Zero chats through Socket Mode.
+
+Required secrets (Settings -> Secrets):
+- `SLACK_BOT_TOKEN` (`xoxb-...`)
+- `SLACK_APP_TOKEN` (`xapp-...`, scope `connections:write`)
+
+Required env (`.env`):
+- `SLACK_SOCKET_ENABLED=true`
+
+Optional env:
+- `SLACK_SOCKET_MODE=dm|mentions|both` (default `both`)
+- `SLACK_SOCKET_REPLY_IN_THREAD=true|false` (default `true`)
+- `SLACK_CONTEXT_LIFETIME_HOURS=720`
+- `SLACK_A0_API_URL=http://app:5000`
+- `SLACK_PROJECT_NAME=<project_slug>` to route Slack chats into a specific project
+
+Behavior:
+- DM events map to one persistent Agent Zero chat per Slack user.
+- Mention events map to one persistent Agent Zero chat per Slack thread.
+- Context mapping is persisted at `usr/slack/socket_context_map.json`.
