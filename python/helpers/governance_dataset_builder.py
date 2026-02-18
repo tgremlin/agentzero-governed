@@ -158,13 +158,25 @@ def build_dataset_manifest(
         }
     )
     source_event_digest = hashlib.sha256(json.dumps(source_event_ids, sort_keys=True).encode("utf-8")).hexdigest()
+    train_eligible_count = 0
+    gold_count = 0
+    for record in records:
+        labels = record.get("labels") if isinstance(record.get("labels"), dict) else {}
+        quality = record.get("quality") if isinstance(record.get("quality"), dict) else {}
+        if bool(labels.get("train_eligible", quality.get("train_eligible", False))):
+            train_eligible_count += 1
+        if bool(labels.get("gold", quality.get("gold", False))):
+            gold_count += 1
     return {
         "dataset_version": DATASET_VERSION,
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "purpose": purpose,
         "project_name": project_name,
         "record_count": len(records),
         "run_count": len(run_ids),
         "run_ids": run_ids,
+        "train_eligible_count": train_eligible_count,
+        "gold_count": gold_count,
         "source_event_count": len(source_event_ids),
         "source_event_ids_sha256": source_event_digest,
         "sha256": digest,

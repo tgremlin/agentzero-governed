@@ -1,3 +1,5 @@
+import datetime as dt
+
 from python.helpers.governance_dataset_builder import (
     DATASET_VERSION,
     build_dataset_manifest,
@@ -89,7 +91,7 @@ def test_build_dataset_manifest_is_deterministic():
             "consent_scope": "eval_allowed",
             "purpose": "eval",
             "labels": {"outcome": "unknown", "event_count": 1},
-            "quality": {"quality_score": 0.5, "train_eligible": False, "gold": False, "tier": "tier1"},
+            "quality": {"quality_score": 0.5, "train_eligible": True, "gold": True, "tier": "gold"},
             "source_event_ids": ["evt-100"],
             "events": [{"type": "run.started", "run_id": "run-a"}],
         }
@@ -99,8 +101,11 @@ def test_build_dataset_manifest_is_deterministic():
     assert manifest["record_count"] == 1
     assert manifest["run_count"] == 1
     assert manifest["run_ids"] == ["run-a"]
+    assert manifest["train_eligible_count"] == 1
+    assert manifest["gold_count"] == 1
     assert manifest["source_event_count"] == 1
     assert len(str(manifest["source_event_ids_sha256"])) == 64
+    assert dt.datetime.fromisoformat(str(manifest["generated_at"]))
     assert len(str(manifest["sha256"])) == 64
 
 
