@@ -8,6 +8,10 @@ Convert governed traces into reproducible, consent-aware training/eval datasets.
 - Episode builder (`run_id` -> canonical JSONL rows)
 - Deterministic quality scoring (`train_eligible`, `gold`)
 - Dataset lineage metadata and version tags
+- Candidate tracks for review queues:
+  - `llm_training`
+  - `agent_tooling`
+  - `harness_improvement`
 
 ## Deliverables
 - Export CLI/service for dataset generation
@@ -31,4 +35,4 @@ Convert governed traces into reproducible, consent-aware training/eval datasets.
 - 100% consent filter accuracy in test suite
 - Reproducible dataset build from same input window
 - Training yield dashboard available (`runs -> eligible -> gold`)
-
+- Candidate API supports track-separated filtering/ranking for review and export

@@ -12,6 +12,7 @@ from python.helpers.training_candidates_store import apply_candidate_overrides
 
 
 ALLOWED_CONSENT_SCOPES = {"audit_only", "eval_allowed", "training_allowed"}
+ALLOWED_CANDIDATE_TRACKS = {"llm_training", "agent_tooling", "harness_improvement"}
 
 
 def _parse_iso_dt(value: str | None) -> dt.datetime | None:
@@ -38,33 +39,55 @@ def _event_ts(event: dict[str, Any]) -> dt.datetime | None:
 
 def _candidate_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
     event_type = str(event.get("type", "")).strip().lower()
-    if event_type not in {"approval.resolved", "run.started", "run.signaled"}:
-        return None
-
     status = "pending_review"
-    score = 0.5
     summary = ""
+    candidate_track = "harness_improvement"
+    score = 0.4
 
     if event_type == "approval.resolved":
         decision = str(event.get("status", "")).strip().lower()
+        candidate_track = "llm_training"
         if decision == "approved":
             status = "ready"
             score = 0.9
-            summary = "Approved governance decision candidate"
-        elif decision == "denied":
+            summary = "Approved governance decision candidate (LLM track)"
+        elif decision in {"denied", "rejected", "reject"}:
             status = "exclude"
             score = 0.2
-            summary = "Denied governance decision candidate"
+            summary = "Denied governance decision candidate (LLM track)"
         else:
-            summary = "Governance decision candidate"
-    elif event_type == "run.started":
+            score = 0.6
+            summary = "Governance decision candidate (LLM track)"
+    elif event_type == "tool.contract.validation":
+        candidate_track = "agent_tooling"
+        passed = bool(event.get("passed", False))
+        status = "ready" if not passed else "pending_review"
+        score = 0.85 if not passed else 0.5
+        summary = "Tool contract candidate (agent tooling track)"
+    elif event_type == "policy.check.decision":
+        candidate_track = "agent_tooling"
+        decision = str(event.get("decision", "")).strip().lower()
+        status = "ready" if decision == "deny" else "pending_review"
+        score = 0.8 if decision == "deny" else 0.45
+        summary = "Policy decision candidate (agent tooling track)"
+    elif event_type in {"llm.response.parse_failed", "llm.parse_failed"}:
+        candidate_track = "harness_improvement"
+        status = "ready"
+        score = 0.9
+        summary = "LLM parse failure candidate (harness track)"
+    elif event_type in {"run.signaled", "run.started"}:
+        candidate_track = "harness_improvement"
         status = "pending_review"
-        score = 0.4
-        summary = "Run lifecycle candidate"
-    elif event_type == "run.signaled":
-        status = "pending_review"
-        score = 0.45
-        summary = "Run signal candidate"
+        score = 0.45 if event_type == "run.signaled" else 0.4
+        summary = "Run lifecycle candidate (harness track)"
+    elif event_type == "run.outcome":
+        candidate_track = "llm_training"
+        outcome = str(event.get("outcome", "")).strip().lower()
+        status = "ready" if outcome == "success" else "pending_review"
+        score = 0.7 if outcome == "success" else 0.35
+        summary = "Run outcome candidate (LLM track)"
+    else:
+        return None
 
     candidate_payload = {
         "event_type": event_type,
@@ -72,6 +95,8 @@ def _candidate_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
         "risk": event.get("risk"),
         "status": event.get("status"),
         "signal": event.get("signal"),
+        "decision": event.get("decision"),
+        "passed": event.get("passed"),
     }
     consent_scope = str(event.get("consent_scope", "")).strip().lower()
     if consent_scope not in ALLOWED_CONSENT_SCOPES:
@@ -85,6 +110,12 @@ def _candidate_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
         "created_at": event.get("event_ts") or event.get("created_at") or "",
         "training_status": status,
         "score": score,
+        "candidate_track": candidate_track,
+        "score_by_track": {
+            "llm_training": score if candidate_track == "llm_training" else 0.0,
+            "agent_tooling": score if candidate_track == "agent_tooling" else 0.0,
+            "harness_improvement": score if candidate_track == "harness_improvement" else 0.0,
+        },
         "summary": summary,
         "source_event": event,
         "payload": candidate_payload,
@@ -98,6 +129,7 @@ def _candidate_from_event(event: dict[str, Any]) -> dict[str, Any] | None:
             "event_type": base.get("event_type"),
             "created_at": base.get("created_at"),
             "payload": candidate_payload,
+            "candidate_track": candidate_track,
         },
         sort_keys=True,
         default=str,
@@ -111,6 +143,7 @@ def _matches_filters(
     *,
     q: str,
     event_type: str,
+    candidate_track: str,
     training_status: str,
     run_id: str,
     consent_scope: str,
@@ -118,6 +151,8 @@ def _matches_filters(
     to_ts: dt.datetime | None,
 ) -> bool:
     if event_type and str(candidate.get("event_type", "")).strip().lower() != event_type:
+        return False
+    if candidate_track and str(candidate.get("candidate_track", "")).strip().lower() != candidate_track:
         return False
     if training_status and str(candidate.get("training_status", "")).strip().lower() != training_status:
         return False
@@ -149,6 +184,7 @@ def _candidates_to_csv(candidates: list[dict[str, Any]]) -> str:
             "candidate_id",
             "created_at",
             "event_type",
+            "candidate_track",
             "training_status",
             "score",
             "project_name",
@@ -181,6 +217,9 @@ class TrainingCandidates(ApiHandler):
         project_name = str(input.get("project_name", "")).strip() or None
         q = str(input.get("q", "")).strip().lower()
         event_type = str(input.get("event_type", "")).strip().lower()
+        candidate_track = str(input.get("candidate_track", "")).strip().lower()
+        if candidate_track and candidate_track not in ALLOWED_CANDIDATE_TRACKS:
+            candidate_track = ""
         training_status = str(input.get("training_status", input.get("status", ""))).strip().lower()
         run_id = str(input.get("run_id", "")).strip()
         consent_scope = str(input.get("consent_scope", "")).strip().lower()
@@ -208,6 +247,7 @@ class TrainingCandidates(ApiHandler):
                 cand,
                 q=q,
                 event_type=event_type,
+                candidate_track=candidate_track,
                 training_status=training_status,
                 run_id=run_id,
                 consent_scope=consent_scope,
@@ -216,6 +256,16 @@ class TrainingCandidates(ApiHandler):
             ):
                 continue
             candidates.append(cand)
+
+        track_counts = {
+            "llm_training": 0,
+            "agent_tooling": 0,
+            "harness_improvement": 0,
+        }
+        for item in candidates:
+            track = str(item.get("candidate_track", "")).strip().lower()
+            if track in track_counts:
+                track_counts[track] += 1
 
         if export_purpose == "training":
             allowed_export_scopes = {"training_allowed"}
@@ -256,4 +306,5 @@ class TrainingCandidates(ApiHandler):
             "offset": offset,
             "limit": limit,
             "items": page,
+            "track_counts": track_counts,
         }

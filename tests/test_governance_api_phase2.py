@@ -196,6 +196,51 @@ def test_training_candidates_filter_and_export(monkeypatch):
     assert "candidate_id" in csv_resp.get_data(as_text=True)
 
 
+def test_training_candidates_track_filter(monkeypatch):
+    import python.api.training_candidates as mod
+
+    handler = TrainingCandidates(None, threading.Lock())
+    events = [
+        {
+            "type": "approval.resolved",
+            "status": "approved",
+            "project_name": "p1",
+            "run_id": "r1",
+            "created_at": "2026-02-17T10:01:00+00:00",
+            "tool_name": "code_execution_tool",
+        },
+        {
+            "type": "tool.contract.validation",
+            "passed": False,
+            "project_name": "p1",
+            "run_id": "r2",
+            "created_at": "2026-02-17T10:02:00+00:00",
+            "tool_name": "code_execution_tool",
+        },
+        {
+            "type": "llm.response.parse_failed",
+            "project_name": "p1",
+            "run_id": "r3",
+            "created_at": "2026-02-17T10:03:00+00:00",
+        },
+    ]
+    monkeypatch.setattr(mod, "load_governance_events", lambda project_name=None, limit=200: events)
+
+    out = __import__("asyncio").run(
+        handler.process({"project_name": "p1", "limit": 10}, _DummyRequest("POST"))
+    )
+    assert out["ok"] is True
+    assert out["track_counts"]["llm_training"] == 1
+    assert out["track_counts"]["agent_tooling"] == 1
+    assert out["track_counts"]["harness_improvement"] == 1
+
+    llm_only = __import__("asyncio").run(
+        handler.process({"project_name": "p1", "candidate_track": "llm_training", "limit": 10}, _DummyRequest("POST"))
+    )
+    assert llm_only["count"] == 1
+    assert llm_only["items"][0]["candidate_track"] == "llm_training"
+
+
 def test_training_candidates_consent_aware_exports(monkeypatch):
     import python.api.training_candidates as mod
 
