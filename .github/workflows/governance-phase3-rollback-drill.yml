@@ -1,0 +1,47 @@
+name: governance-phase3-rollback-drill
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rollback-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Docker
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Build app container
+        run: docker compose -f docker-compose.client.yml up -d --build app
+
+      - name: Run phase 3 rollback drill
+        run: |
+          docker compose -f docker-compose.client.yml exec -T app /opt/venv-a0/bin/python /a0/tools/governance_phase3_rollback_drill.py \
+            --output-dir /a0/tmp/governance-phase3-drill
+
+      - name: Upload rollback drill artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governance-phase3-rollback-drill
+          path: client-data/tmp/governance-phase3-drill/**
+
+      - name: Dump compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.client.yml logs --no-color > governance-phase3-drill-compose.log || true
+
+      - name: Upload compose logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governance-phase3-drill-compose-logs
+          path: governance-phase3-drill-compose.log
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.client.yml down -v

@@ -32,3 +32,6 @@ Operationalize small-model adaptation loop using governed datasets.
 - Candidate adapters gated by deterministic eval thresholds
 - Canary rollback proven in staging drill
 
+## Validation Artifacts
+- Exit evidence pack: `docs/governance/tracing-phase-3-exit-evidence.md`
+- Manual review checklist: `docs/governance/tracing-phase-3-manual-review.md`

@@ -15,6 +15,11 @@ REQUIRED_GATES = (
     "approval_reject_rate",
 )
 
+DEFAULT_MIN_TOOL_CONTRACT_PASS_DELTA = -0.01
+DEFAULT_MAX_POLICY_VIOLATION_DELTA = 0.01
+DEFAULT_MIN_JSON_TOOL_CALL_VALIDITY_DELTA = -0.02
+DEFAULT_MAX_APPROVAL_REJECT_DELTA = 0.02
+
 
 def _load_json(path: str | None) -> dict[str, Any]:
     if not path:
@@ -36,6 +41,31 @@ def _metric(report: dict[str, Any], key: str) -> float:
         return float(value)
     except Exception:
         return 0.0
+
+
+def _to_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _load_thresholds(path: str | None) -> dict[str, Any]:
+    payload = _load_json(path)
+    if not isinstance(payload, dict):
+        return {}
+    thresholds = payload.get("release_gate_thresholds")
+    if isinstance(thresholds, dict):
+        return thresholds
+    return payload
+
+
+def _resolve_threshold_value(cli_value: Any, file_value: Any, default: float) -> float:
+    if cli_value is not None:
+        return _to_float(cli_value, default)
+    if file_value is not None:
+        return _to_float(file_value, default)
+    return float(default)
 
 
 def evaluate_release_gate(
@@ -117,23 +147,55 @@ def main() -> int:
     parser.add_argument("--eval-report", required=True, help="Path to current eval JSON report.")
     parser.add_argument("--baseline-report", default="", help="Optional baseline eval JSON report.")
     parser.add_argument("--output", default="", help="Optional output JSON file.")
-    parser.add_argument("--min-tool-contract-pass-delta", type=float, default=-0.01)
-    parser.add_argument("--max-policy-violation-delta", type=float, default=0.01)
-    parser.add_argument("--min-json-tool-call-validity-delta", type=float, default=-0.02)
-    parser.add_argument("--max-approval-reject-delta", type=float, default=0.02)
+    parser.add_argument(
+        "--thresholds-file",
+        default="conf/governance_release_gate_thresholds.json",
+        help="Optional JSON file with release gate tolerance values.",
+    )
+    parser.add_argument("--min-tool-contract-pass-delta", type=float, default=None)
+    parser.add_argument("--max-policy-violation-delta", type=float, default=None)
+    parser.add_argument("--min-json-tool-call-validity-delta", type=float, default=None)
+    parser.add_argument("--max-approval-reject-delta", type=float, default=None)
     parser.add_argument("--lifecycle-project-name", default="", help="Optional project name for lifecycle event.")
     parser.add_argument("--lifecycle-run-id", default="", help="Optional run ID for lifecycle event.")
     args = parser.parse_args()
 
     eval_report = _load_json(args.eval_report)
     baseline_report = _load_json(args.baseline_report)
+    thresholds_file = str(args.thresholds_file).strip()
+    threshold_map = _load_thresholds(thresholds_file)
+    min_tool_contract_pass_delta = _resolve_threshold_value(
+        args.min_tool_contract_pass_delta,
+        threshold_map.get("min_tool_contract_pass_delta"),
+        DEFAULT_MIN_TOOL_CONTRACT_PASS_DELTA,
+    )
+    max_policy_violation_delta = _resolve_threshold_value(
+        args.max_policy_violation_delta,
+        threshold_map.get("max_policy_violation_delta"),
+        DEFAULT_MAX_POLICY_VIOLATION_DELTA,
+    )
+    min_json_tool_call_validity_delta = _resolve_threshold_value(
+        args.min_json_tool_call_validity_delta,
+        threshold_map.get("min_json_tool_call_validity_delta"),
+        DEFAULT_MIN_JSON_TOOL_CALL_VALIDITY_DELTA,
+    )
+    max_approval_reject_delta = _resolve_threshold_value(
+        args.max_approval_reject_delta,
+        threshold_map.get("max_approval_reject_delta"),
+        DEFAULT_MAX_APPROVAL_REJECT_DELTA,
+    )
     result = evaluate_release_gate(
         eval_report,
         baseline_report,
-        min_tool_contract_pass_delta=float(args.min_tool_contract_pass_delta),
-        max_policy_violation_delta=float(args.max_policy_violation_delta),
-        min_json_tool_call_validity_delta=float(args.min_json_tool_call_validity_delta),
-        max_approval_reject_delta=float(args.max_approval_reject_delta),
+        min_tool_contract_pass_delta=min_tool_contract_pass_delta,
+        max_policy_violation_delta=max_policy_violation_delta,
+        min_json_tool_call_validity_delta=min_json_tool_call_validity_delta,
+        max_approval_reject_delta=max_approval_reject_delta,
+    )
+    result["threshold_source"] = (
+        str(pathlib.Path(thresholds_file))
+        if threshold_map
+        else "defaults"
     )
 
     output = str(args.output).strip()

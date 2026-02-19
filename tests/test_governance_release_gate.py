@@ -169,3 +169,84 @@ def test_release_gate_cli_emits_lifecycle_event(tmp_path, monkeypatch):
     assert rows
     assert rows[-1]["event_type"] == "training.promotion.decision"
     assert rows[-1]["status"] == "promote"
+
+
+def test_release_gate_cli_reads_thresholds_file(tmp_path, monkeypatch):
+    eval_report = tmp_path / "eval.json"
+    eval_report.write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "gates": {
+                    "tool_contract_pass_rate": True,
+                    "policy_violation_rate": True,
+                    "json_tool_call_validity": True,
+                    "approval_reject_rate": True,
+                },
+                "metrics": {
+                    "tool_contract_pass_rate": 0.80,
+                    "policy_violation_rate": 0.10,
+                    "json_tool_call_validity": 0.80,
+                    "approval_reject_rate": 0.30,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "gates": {
+                    "tool_contract_pass_rate": True,
+                    "policy_violation_rate": True,
+                    "json_tool_call_validity": True,
+                    "approval_reject_rate": True,
+                },
+                "metrics": {
+                    "tool_contract_pass_rate": 0.79,
+                    "policy_violation_rate": 0.11,
+                    "json_tool_call_validity": 0.79,
+                    "approval_reject_rate": 0.31,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    thresholds = tmp_path / "thresholds.json"
+    thresholds.write_text(
+        json.dumps(
+            {
+                "release_gate_thresholds": {
+                    "min_tool_contract_pass_delta": 0.0,
+                    "max_policy_violation_delta": 0.0,
+                    "min_json_tool_call_validity_delta": 0.0,
+                    "max_approval_reject_delta": 0.0,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    out_file = tmp_path / "release.json"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "governance_release_gate.py",
+            "--eval-report",
+            str(eval_report),
+            "--baseline-report",
+            str(baseline),
+            "--thresholds-file",
+            str(thresholds),
+            "--output",
+            str(out_file),
+        ],
+    )
+    rc = gate_mod.main()
+    assert rc == 0
+    payload = json.loads(out_file.read_text(encoding="utf-8"))
+    assert payload["decision"] == "promote"
+    assert payload["threshold_source"] == str(thresholds)

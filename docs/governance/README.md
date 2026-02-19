@@ -138,6 +138,8 @@ Behavior:
 - Phase 1 (foundation): `docs/governance/tracing-phase-1-foundation.md`
 - Phase 2 (curation): `docs/governance/tracing-phase-2-curation.md`
 - Phase 3 (training ops): `docs/governance/tracing-phase-3-training-ops.md`
+- Phase 3 exit evidence: `docs/governance/tracing-phase-3-exit-evidence.md`
+- Phase 3 manual review: `docs/governance/tracing-phase-3-manual-review.md`
 - Operations runbook: `docs/governance/tracing-operations-runbook.md`
 
 ## Trace Health Check

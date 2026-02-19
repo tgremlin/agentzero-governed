@@ -46,6 +46,9 @@ python3 tools/governance_eval_harness.py --dataset-jsonl <dataset.jsonl> --outpu
 ```bash
 python3 tools/governance_release_gate.py --eval-report <eval-report.json> --baseline-report <baseline-report.json>
 ```
+Release gate tolerances are frozen in:
+- `conf/governance_release_gate_thresholds.json`
+
 3. If decision is `rollback`, stop rollout and investigate before retry.
 
 ## Incident response: secret scan or policy failure
@@ -82,3 +85,11 @@ Open/track an issue immediately when any are true:
 - `policy_decision_capture_rate < 100%`
 - Release gate decision is `rollback` for candidate adapter
 - Healthcheck exits non-zero for two consecutive runs
+
+## Phase 3 rollback drill
+Run deterministic rollback proof:
+
+```bash
+docker compose -f docker-compose.client.yml exec -T app /opt/venv-a0/bin/python /a0/tools/governance_phase3_rollback_drill.py \
+  --output-dir /a0/tmp/governance-phase3-drill
+```
