@@ -34,3 +34,9 @@ def test_data_manager_store_supports_scope_and_track_filters() -> None:
     assert "return { context_id: contextId };" in store
     assert "return { project_name: projectName };" in store
     assert "trackCounts" in store
+
+
+def test_snapshot_apply_does_not_fallback_to_other_chat_context() -> None:
+    index_js = _read("webui/index.js")
+    assert "setContext(firstChatId);" not in index_js
+    assert "forcing a fallback leaks" in index_js

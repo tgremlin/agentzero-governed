@@ -376,14 +376,11 @@ export async function applySnapshot(snapshot, options = {}) {
     }
 
       if (!contextInChats && !contextInTasks) {
-        if (chatsStore.contexts.length > 0) {
-          // If it doesn't exist in the list but other contexts do, fall back to the first
-          const firstChatId = chatsStore.firstId();
-          if (firstChatId) {
-            setContext(firstChatId);
-            chatsStore.setSelected(firstChatId);
-          }
-        } else if (typeof deselectChat === "function") {
+        // Do not auto-switch to a different chat. Transient snapshot races can
+        // temporarily omit a just-created context, and forcing a fallback leaks
+        // another chat's history into the current view. Keep the selected context
+        // stable and wait for the next snapshot/update cycle.
+        if (chatsStore.contexts.length === 0 && typeof deselectChat === "function") {
           // No contexts remain – clear state so the welcome screen can surface
           deselectChat();
         }
