@@ -19,10 +19,25 @@ jobs:
       - name: Build app container
         run: docker compose -f docker-compose.client.yml up -d --build app
 
+      - name: Run governed release preflight gate
+        run: |
+          chmod +x tools/governance_release_preflight.sh
+          PROJECT_NAME=governance-release tools/governance_release_preflight.sh
+
       - name: Build release bundle in app container
         run: |
           docker compose -f docker-compose.client.yml exec -T app /bin/bash -lc \
             "cd /a0 && ./tools/package_release.sh --version '${{ inputs.version }}'"
+
+      - name: Upload preflight artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governance-release-preflight
+          path: |
+            client-data/tmp/governance-preflight/eval-report.json
+            client-data/tmp/governance-preflight/release-gate.json
+            client-data/tmp/governance-preflight/datasets/**
 
       - name: Upload release bundle artifacts
         uses: actions/upload-artifact@v4
@@ -31,6 +46,17 @@ jobs:
           path: |
             dist/agentzero-governed-v${{ inputs.version }}.tar.gz
             dist/agentzero-governed-v${{ inputs.version }}.sha256
+
+      - name: Dump compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.client.yml logs --no-color > release-bundle-compose.log || true
+
+      - name: Upload compose logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle-compose-logs
+          path: release-bundle-compose.log
 
       - name: Tear down
         if: always()

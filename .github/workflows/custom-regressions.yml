@@ -29,6 +29,9 @@ jobs:
             /a0/tests/test_extract_tools_minimax.py \
             /a0/tests/test_scheduler_recovery.py \
             /a0/tests/test_governance_input.py \
+            /a0/tests/test_governance_trace_healthcheck.py \
+            /a0/tests/test_governance_audit_schema_check.py \
+            /a0/tests/test_governance_ops_cycle.py \
             /a0/tests/test_scheduler_manifest.py \
             /a0/tests/test_slack_socket_listener.py \
             /a0/tests/test_gh_tool.py \
