@@ -1,5 +1,7 @@
 import datetime as dt
+import sys
 
+import tools.governance_trace_healthcheck as health_mod
 from tools.governance_trace_healthcheck import evaluate_trace_health
 
 
@@ -44,3 +46,23 @@ def test_trace_health_fails_on_missing_and_stale_data_and_active_runs():
     assert "dataset_freshness" in failed
     assert "lifecycle_freshness" in failed
     assert "active_run_count" in failed
+
+
+def test_trace_health_cli_returns_nonzero_when_required_artifacts_missing(monkeypatch):
+    monkeypatch.setattr(
+        health_mod,
+        "load_system_trace_summary",
+        lambda project_name="": _summary(dataset_at=None, lifecycle_at=None, active_runs=0),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "governance_trace_healthcheck.py",
+            "--project-name",
+            "p1",
+            "--require-artifacts",
+        ],
+    )
+    rc = health_mod.main()
+    assert rc == 1
