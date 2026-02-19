@@ -157,8 +157,12 @@ const model = {
   },
 
   openDataEvents() {
-    if (typeof window.openModal === "function") {
-      window.openModal("modals/data-events/data-events.html");
+    if (window.Alpine?.store) {
+      const dataManager = window.Alpine.store("dataManager");
+      if (dataManager && typeof dataManager.open === "function") {
+        const hasContext = Boolean(globalThis.getContext?.());
+        dataManager.open({ tab: "governance", scope: hasContext ? "chat" : "global" });
+      }
     }
   },
 

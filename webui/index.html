@@ -19,6 +19,7 @@
     <link rel="stylesheet" href="css/notification.css">
     <link rel="stylesheet" href="css/buttons.css">
     <link rel="stylesheet" href="css/tables.css">
+    <link rel="stylesheet" href="css/data-manager.css">
 
     <!-- Flatpickr for datetime picker -->
     <link rel="stylesheet" href="vendor/flatpickr/flatpickr.min.css">
@@ -90,12 +91,17 @@
             <!-- top section with time, status etc. -->
             <x-component path="chat/top-section/chat-top.html"></x-component>
 
+            <!-- Data Manager Full-Screen -->
+            <div x-data x-show="$store.dataManager && $store.dataManager.isOpen">
+                <x-component path="data-manager/data-manager-screen.html"></x-component>
+            </div>
+
             <!-- Welcome Screen Component -->
-            <div x-data x-show="$store.welcomeStore && $store.welcomeStore.isVisible">
+            <div x-data x-show="$store.welcomeStore && $store.welcomeStore.isVisible && !($store.dataManager && $store.dataManager.isOpen)">
                 <x-component path="welcome/welcome-screen.html"></x-component>
             </div>
             <!-- Message History (actual messages) -->
-            <div id="chat-history" x-data x-show="!$store.welcomeStore || !$store.welcomeStore.isVisible"></div>
+            <div id="chat-history" x-data x-show="(!$store.welcomeStore || !$store.welcomeStore.isVisible) && !($store.dataManager && $store.dataManager.isOpen)"></div>
 
             <!-- NEW: Toast Stack Component -->
             <div style="position: relative; height: 0;">
@@ -112,7 +118,7 @@
                 <button class="toast__close">Close</button>
             </div>
             <!-- Chat Input Area -->
-            <div x-show="!$store.welcomeStore || !$store.welcomeStore.isVisible">
+            <div x-show="(!$store.welcomeStore || !$store.welcomeStore.isVisible) && !($store.dataManager && $store.dataManager.isOpen)">
                 <!-- Progress Bar -->
                 <x-component path="chat/input/progress.html"></x-component>
                 <!-- Input Section -->

@@ -32,7 +32,7 @@
       </button>
 
       <!-- Data Events -->
-      <button class="config-button" id="data-events" @click="openModal('modals/data-events/data-events.html')" title="Data Events">
+      <button class="config-button" id="data-events" @click="$store.dataManager.open({ tab: 'governance', scope: 'global' })" title="Data Events">
         <span class="material-symbols-outlined">data_table</span>
       </button>
 
@@ -74,7 +74,7 @@
         <span>Settings</span>
       </button>
 
-      <button class="dropdown-item" @click="openModal('modals/data-events/data-events.html'); dropdownOpen = false">
+      <button class="dropdown-item" @click="$store.dataManager.open({ tab: 'governance', scope: 'global' }); dropdownOpen = false">
         <span class="material-symbols-outlined">data_table</span>
         <span>Data Events</span>
       </button>
