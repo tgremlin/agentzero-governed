@@ -1,17 +1,40 @@
 from python.helpers.api import ApiHandler, Input, Output, Request, Response
 
 
-from python.helpers import projects, guids
+from python.helpers import guids, persist_chat
 from agent import AgentContext
 
 
 class CreateChat(ApiHandler):
+    def _is_context_id_taken(self, ctxid: str) -> bool:
+        if not ctxid:
+            return True
+        if AgentContext.get(ctxid):
+            return True
+        # Also avoid ids that already exist on disk but are not loaded yet.
+        chat_path = persist_chat.get_chat_folder_path(ctxid)
+        from python.helpers import files
+
+        return files.exists(chat_path)
+
+    def _resolve_new_context_id(self, preferred: str | None = None) -> str:
+        candidate = str(preferred or "").strip()
+        if candidate and not self._is_context_id_taken(candidate):
+            return candidate
+        while True:
+            candidate = guids.generate_id()
+            if not self._is_context_id_taken(candidate):
+                return candidate
+
     async def process(self, input: Input, request: Request) -> Output:
-        current_ctxid = input.get("current_context", "") # current context id
-        new_ctxid = input.get("new_context", guids.generate_id()) # given or new guid
+        current_ctxid = input.get("current_context", "")  # current context id
+        requested_new_ctxid = input.get("new_context", "")  # optional preferred id
 
         # context instance - get or create
         current_context = AgentContext.get(current_ctxid)
+
+        # Resolve a guaranteed-fresh context id.
+        new_ctxid = self._resolve_new_context_id(requested_new_ctxid)
 
         # get/create new context
         new_context = self.use_context(new_ctxid)
