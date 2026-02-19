@@ -1,0 +1,62 @@
+name: governance-ops-cycle
+
+on:
+  schedule:
+    - cron: "15 6 * * *"
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: "Optional governance project name filter"
+        required: false
+        type: string
+
+jobs:
+  ops-cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Docker
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Build app container
+        run: docker compose -f docker-compose.client.yml up -d --build app
+
+      - name: Run governed ops cycle
+        run: |
+          PROJECT_NAME_INPUT="${{ github.event.inputs.project_name }}"
+          PROJECT_NAME="${PROJECT_NAME_INPUT:-governance-ci}"
+          docker compose -f docker-compose.client.yml exec -T app /opt/venv-a0/bin/python /a0/tools/governance_ops_cycle.py \
+            --project-name "${PROJECT_NAME}" \
+            --datasets-dir /a0/tmp/governance-ops \
+            --events-limit 10000 \
+            --min-record-count 2000 \
+            --min-gold-count 200 \
+            --max-manifest-age-days 14 \
+            --retention-max-age-days 30
+
+      - name: Upload ops artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governance-ops-cycle-artifacts
+          path: client-data/tmp/governance-ops/**
+
+      - name: Dump compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.client.yml logs --no-color > governance-ops-cycle-compose.log || true
+
+      - name: Upload compose logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governance-ops-cycle-compose-logs
+          path: governance-ops-cycle-compose.log
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.client.yml down -v

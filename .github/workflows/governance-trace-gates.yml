@@ -36,9 +36,9 @@ jobs:
         with:
           name: governance-trace-preflight
           path: |
-            tmp/governance-preflight/eval-report.json
-            tmp/governance-preflight/release-gate.json
-            tmp/governance-preflight/datasets/**
+            client-data/tmp/governance-preflight/eval-report.json
+            client-data/tmp/governance-preflight/release-gate.json
+            client-data/tmp/governance-preflight/datasets/**
 
       - name: Dump compose logs on failure
         if: failure()

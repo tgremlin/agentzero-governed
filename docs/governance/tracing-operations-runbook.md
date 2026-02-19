@@ -17,6 +17,18 @@ Expected:
 - Audit schema check exits `0`
 - Dashboard JSON has non-zero `sources.training_lifecycle` once pipelines are active
 
+## Scheduled ops cycle
+Run the recurring ops bundle (exports, trigger decision, retention, dashboard):
+
+```bash
+docker compose -f docker-compose.client.yml exec -T app /opt/venv-a0/bin/python /a0/tools/governance_ops_cycle.py \
+  --project-name <project_slug> \
+  --datasets-dir /a0/tmp/governance-ops
+```
+
+CI automation:
+- `.github/workflows/governance-ops-cycle.yml` (nightly + manual dispatch)
+
 ## Pre-release gate sequence
 Preferred one-shot command (same order as CI):
 
