@@ -75,6 +75,30 @@ def test_evaluate_training_trigger_ignores_stale_and_eval_manifests():
     assert out["eligible_manifests"] == 1
     assert out["total_records"] == 30
     assert out["total_gold"] == 2
+    assert out["skipped_invalid_generated_at"] == 0
+
+
+def test_evaluate_training_trigger_skips_invalid_generated_at():
+    manifests = [
+        {
+            "purpose": "training",
+            "generated_at": "not-a-timestamp",
+            "record_count": 5000,
+            "gold_count": 999,
+            "_path": "/tmp/bad.manifest.json",
+        }
+    ]
+    out = evaluate_training_trigger(
+        manifests,
+        min_record_count=100,
+        min_gold_count=10,
+        max_manifest_age_days=7,
+    )
+    assert out["trigger_training"] is False
+    assert out["eligible_manifests"] == 0
+    assert out["total_records"] == 0
+    assert out["total_gold"] == 0
+    assert out["skipped_invalid_generated_at"] == 1
 
 
 def test_training_trigger_cli_emits_lifecycle_event(tmp_path, monkeypatch):

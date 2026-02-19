@@ -51,10 +51,14 @@ def evaluate_training_trigger(
     cutoff = now - dt.timedelta(days=max_age)
 
     eligible: list[dict[str, Any]] = []
+    skipped_invalid_generated_at = 0
     for item in manifests:
         if str(item.get("purpose", "")).strip().lower() != "training":
             continue
         created_at = _parse_iso(item.get("generated_at"))
+        if created_at is None:
+            skipped_invalid_generated_at += 1
+            continue
         if created_at is not None and created_at < cutoff:
             continue
         eligible.append(item)
@@ -72,6 +76,7 @@ def evaluate_training_trigger(
         "min_record_count": min_record_count,
         "min_gold_count": min_gold_count,
         "max_manifest_age_days": max_age,
+        "skipped_invalid_generated_at": skipped_invalid_generated_at,
         "trigger_training": should_trigger,
         "manifests": [
             {

@@ -8,6 +8,14 @@ from typing import Any
 
 from python.helpers.governance_training_lifecycle import append_training_lifecycle_event
 
+REQUIRED_GATES = (
+    "tool_contract_pass_rate",
+    "policy_violation_rate",
+    "json_tool_call_validity",
+    "approval_reject_rate",
+)
+
+
 def _load_json(path: str | None) -> dict[str, Any]:
     if not path:
         return {}
@@ -42,7 +50,17 @@ def evaluate_release_gate(
     baseline_report = baseline_report or {}
     current_ok = bool(eval_report.get("ok", False))
     current_gates = eval_report.get("gates") if isinstance(eval_report.get("gates"), dict) else {}
-    hard_fail = not current_ok or not all(bool(v) for v in current_gates.values())
+    validation_errors: list[str] = []
+    missing_gate_keys = [key for key in REQUIRED_GATES if key not in current_gates]
+    if missing_gate_keys:
+        validation_errors.append(f"missing_gate_keys:{','.join(missing_gate_keys)}")
+
+    invalid_gate_keys = [key for key in REQUIRED_GATES if key in current_gates and not isinstance(current_gates.get(key), bool)]
+    if invalid_gate_keys:
+        validation_errors.append(f"invalid_gate_values:{','.join(invalid_gate_keys)}")
+
+    gate_values = [bool(current_gates.get(key, False)) for key in REQUIRED_GATES]
+    hard_fail = (not current_ok) or bool(validation_errors) or (not all(gate_values))
 
     regressions: dict[str, float] = {}
     if baseline_report:
@@ -81,6 +99,7 @@ def evaluate_release_gate(
         "current_ok": current_ok,
         "hard_fail": hard_fail,
         "soft_fail": soft_fail,
+        "validation_errors": validation_errors,
         "regressions": regressions,
         "tolerances": {
             "min_tool_contract_pass_delta": float(min_tool_contract_pass_delta),

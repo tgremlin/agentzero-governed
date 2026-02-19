@@ -69,6 +69,59 @@ def test_release_gate_rollback_on_hard_failure():
     assert out["hard_fail"] is True
 
 
+def test_release_gate_rollback_when_required_gates_missing():
+    current = {
+        "ok": True,
+        "gates": {},
+        "metrics": {
+            "tool_contract_pass_rate": 0.99,
+            "policy_violation_rate": 0.01,
+            "json_tool_call_validity": 0.95,
+            "approval_reject_rate": 0.05,
+        },
+    }
+    out = evaluate_release_gate(
+        current,
+        baseline_report=None,
+        min_tool_contract_pass_delta=-0.01,
+        max_policy_violation_delta=0.01,
+        min_json_tool_call_validity_delta=-0.02,
+        max_approval_reject_delta=0.02,
+    )
+    assert out["decision"] == "rollback"
+    assert out["hard_fail"] is True
+    assert any(err.startswith("missing_gate_keys:") for err in out["validation_errors"])
+
+
+def test_release_gate_rollback_when_required_gate_values_are_not_bool():
+    current = {
+        "ok": True,
+        "gates": {
+            "tool_contract_pass_rate": "true",
+            "policy_violation_rate": True,
+            "json_tool_call_validity": True,
+            "approval_reject_rate": True,
+        },
+        "metrics": {
+            "tool_contract_pass_rate": 0.99,
+            "policy_violation_rate": 0.01,
+            "json_tool_call_validity": 0.95,
+            "approval_reject_rate": 0.05,
+        },
+    }
+    out = evaluate_release_gate(
+        current,
+        baseline_report=None,
+        min_tool_contract_pass_delta=-0.01,
+        max_policy_violation_delta=0.01,
+        min_json_tool_call_validity_delta=-0.02,
+        max_approval_reject_delta=0.02,
+    )
+    assert out["decision"] == "rollback"
+    assert out["hard_fail"] is True
+    assert "invalid_gate_values:tool_contract_pass_rate" in out["validation_errors"]
+
+
 def test_release_gate_cli_emits_lifecycle_event(tmp_path, monkeypatch):
     eval_report = tmp_path / "eval.json"
     eval_report.write_text(
