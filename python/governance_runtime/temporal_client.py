@@ -123,9 +123,61 @@ def _db_fallback_signal(*, run_id: str, signal: str, payload: dict[str, Any] | N
     }
 
 
+def _persist_signal_event(
+    *,
+    repo: Any,
+    run_id: str,
+    signal: str,
+    status: str,
+    payload: dict[str, Any] | None = None,
+) -> bool:
+    try:
+        repo.update_run_status(run_id=run_id, status=status)
+        repo.append_event(
+            {
+                "type": "run.signaled",
+                "run_id": run_id,
+                "signal": signal,
+                "status": status,
+                "payload": payload or {},
+            }
+        )
+        if signal == "cancel":
+            repo.append_event(
+                {
+                    "type": EVENT_RUN_OUTCOME,
+                    "run_id": run_id,
+                    "outcome": "cancelled",
+                    "status": status,
+                    "source": "temporal_client",
+                }
+            )
+        return True
+    except Exception:
+        return False
+
+
 async def start_governed_run(*, context_id: str, project_name: str | None) -> dict[str, Any]:
     run_id = str(uuid.uuid4())
     queue = os.environ.get("TEMPORAL_TASK_QUEUE", "agentzero-governance")
+    repo = get_postgres_repo()
+    persisted = False
+
+    if repo is not None:
+        try:
+            run_id = repo.create_run(context_id=context_id, project_name=project_name, status="queued")
+            repo.append_event(
+                {
+                    "type": "run.started",
+                    "run_id": run_id,
+                    "context_id": context_id,
+                    "project_name": project_name,
+                    "status": "queued",
+                }
+            )
+            persisted = True
+        except Exception:
+            persisted = False
 
     try:
         from python.governance_runtime.temporal_workflow import GovernedRunInput, GovernedRunWorkflow
@@ -144,6 +196,13 @@ async def start_governed_run(*, context_id: str, project_name: str | None) -> di
             "temporal": True,
         }
     except Exception:
+        if repo is not None:
+            return {
+                "run_id": run_id,
+                "status": "queued",
+                "persisted": persisted,
+                "temporal": False,
+            }
         return _db_fallback_start(context_id=context_id, project_name=project_name)
 
 
@@ -153,6 +212,8 @@ async def signal_governed_run(
     sig = str(signal or "").strip().lower()
     if sig not in {"pause", "resume", "cancel"}:
         raise ValueError(f"unsupported signal: {signal}")
+    repo = get_postgres_repo()
+    status = _RUN_STATUS_BY_SIGNAL[sig]
 
     try:
         from python.governance_runtime.temporal_workflow import GovernedRunWorkflow
@@ -165,10 +226,18 @@ async def signal_governed_run(
             await handle.signal(GovernedRunWorkflow.resume, payload or {})
         else:
             await handle.signal(GovernedRunWorkflow.cancel, payload or {})
+        if repo is not None:
+            _persist_signal_event(
+                repo=repo,
+                run_id=run_id,
+                signal=sig,
+                status=status,
+                payload=payload,
+            )
         return {
             "run_id": run_id,
             "signal": sig,
-            "status": _RUN_STATUS_BY_SIGNAL[sig],
+            "status": status,
             "persisted": True,
             "temporal": True,
         }
