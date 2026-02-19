@@ -75,7 +75,21 @@ def build_training_dashboard_snapshot(
 
     stage_status_counts: dict[str, dict[str, int]] = {}
     active_run_ids: set[str] = set()
-    terminal_status = {"success", "succeeded", "completed", "failed", "error", "rollback", "canceled", "cancelled"}
+    terminal_status = {
+        "success",
+        "succeeded",
+        "completed",
+        "failed",
+        "error",
+        "rollback",
+        "promote",
+        "canary",
+        "hold",
+        "triggered",
+        "skipped",
+        "canceled",
+        "cancelled",
+    }
     for item in lifecycle_items:
         stage = str(item.get("stage", "unknown")).strip().lower() or "unknown"
         status = str(item.get("status", "unknown")).strip().lower() or "unknown"

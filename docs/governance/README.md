@@ -161,3 +161,9 @@ Validate audit schema/taxonomy versions before promotion:
 ```bash
 python3 tools/governance_audit_schema_check.py --project-name <project_slug> --require-events
 ```
+
+Run the full CI-equivalent preflight sequence locally (inside the Docker app container):
+
+```bash
+PROJECT_NAME=<project_slug> tools/governance_release_preflight.sh
+```

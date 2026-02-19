@@ -137,3 +137,18 @@ def test_governance_training_dashboard_cli_outputs_snapshot(tmp_path: Path, monk
     assert payload["sources"]["dataset_exports"] == 1
     assert payload["decision_summary"]["by_decision"]["trigger"] == 1
     assert payload["lifecycle_summary"]["active_run_count"] == 1
+
+
+def test_build_training_dashboard_snapshot_treats_promote_as_terminal():
+    items = [
+        {
+            "kind": "training_lifecycle",
+            "project_name": "alpha",
+            "stage": "promotion",
+            "status": "promote",
+            "run_id": "run-1",
+            "generated_at": "2026-02-18T11:30:00Z",
+        }
+    ]
+    out = build_training_dashboard_snapshot(items, project_name="alpha")
+    assert out["lifecycle_summary"]["active_run_count"] == 0

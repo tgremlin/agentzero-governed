@@ -18,6 +18,14 @@ Expected:
 - Dashboard JSON has non-zero `sources.training_lifecycle` once pipelines are active
 
 ## Pre-release gate sequence
+Preferred one-shot command (same order as CI):
+
+```bash
+PROJECT_NAME=<project_slug> tools/governance_release_preflight.sh
+```
+
+Manual sequence (if debugging a specific step):
+
 1. Build eval report:
 ```bash
 python3 tools/governance_eval_harness.py --dataset-jsonl <dataset.jsonl> --output <eval-report.json>

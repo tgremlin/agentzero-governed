@@ -1,0 +1,56 @@
+name: governance-trace-gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+      - feature/**
+      - release/**
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Docker
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Build app container
+        run: docker compose -f docker-compose.client.yml up -d --build app
+
+      - name: Run governed trace release preflight
+        run: |
+          chmod +x tools/governance_release_preflight.sh
+          PROJECT_NAME=governance-ci tools/governance_release_preflight.sh
+
+      - name: Upload preflight artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governance-trace-preflight
+          path: |
+            tmp/governance-preflight/eval-report.json
+            tmp/governance-preflight/release-gate.json
+            tmp/governance-preflight/datasets/**
+
+      - name: Dump compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.client.yml logs --no-color > governance-trace-gates-compose.log || true
+
+      - name: Upload compose logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governance-trace-gates-compose-logs
+          path: governance-trace-gates-compose.log
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.client.yml down -v
