@@ -138,3 +138,19 @@ Behavior:
 - Phase 1 (foundation): `docs/governance/tracing-phase-1-foundation.md`
 - Phase 2 (curation): `docs/governance/tracing-phase-2-curation.md`
 - Phase 3 (training ops): `docs/governance/tracing-phase-3-training-ops.md`
+
+## Trace Health Check
+
+Use deterministic trace health checks before release promotions:
+
+```bash
+python3 tools/governance_trace_healthcheck.py \
+  --project-name <project_slug> \
+  --require-artifacts \
+  --max-dataset-age-hours 168 \
+  --max-lifecycle-age-hours 168
+```
+
+Exit code:
+- `0`: healthy
+- `1`: one or more checks failed
