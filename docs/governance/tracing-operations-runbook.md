@@ -8,11 +8,13 @@ Run from `data/a0/`:
 
 ```bash
 python3 tools/governance_trace_healthcheck.py --project-name <project_slug> --require-artifacts
+python3 tools/governance_audit_schema_check.py --project-name <project_slug> --require-events
 python3 tools/governance_training_dashboard.py --project-name <project_slug>
 ```
 
 Expected:
 - Healthcheck exits `0`
+- Audit schema check exits `0`
 - Dashboard JSON has non-zero `sources.training_lifecycle` once pipelines are active
 
 ## Pre-release gate sequence

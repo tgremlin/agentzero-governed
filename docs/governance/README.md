@@ -155,3 +155,9 @@ python3 tools/governance_trace_healthcheck.py \
 Exit code:
 - `0`: healthy
 - `1`: one or more checks failed
+
+Validate audit schema/taxonomy versions before promotion:
+
+```bash
+python3 tools/governance_audit_schema_check.py --project-name <project_slug> --require-events
+```
