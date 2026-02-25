@@ -369,6 +369,7 @@ class Agent:
     DATA_NAME_SUBORDINATE = "_subordinate"
     DATA_NAME_CTX_WINDOW = "ctx_window"
     DATA_NAME_MISFORMAT_STREAK = "_misformat_streak"
+    DATA_NAME_CP_ADAPTER = "_cp_adapter"
 
     def __init__(
         self, number: int, config: AgentConfig, context: AgentContext | None = None
@@ -399,6 +400,7 @@ class Agent:
                 self.loop_data = LoopData(user_message=self.last_user_message)
                 # call monologue_start extensions
                 await self.call_extensions("monologue_start", loop_data=self.loop_data)
+                self._cp_ensure_run_started()
 
                 printer = PrintStyle(italic=True, font_color="#b3ffd9", padding=False)
 
@@ -500,6 +502,7 @@ class Agent:
                             # process tools requested in agent message
                             tools_result = await self.process_tools(agent_response)
                             if tools_result:  # final response of message loop available
+                                self._cp_complete_run(reason="response_tool")
                                 return tools_result  # break the execution if the task is done
 
                     # exceptions inside message loop:
@@ -622,6 +625,7 @@ class Agent:
             raise exception  # Re-raise the exception to kill the loop
         elif isinstance(exception, asyncio.CancelledError):
             # Handling for asyncio.CancelledError
+            self._cp_fail_run(reason="cancelled")
             PrintStyle(font_color="white", background_color="red", padding=True).print(
                 f"Context {self.context.id} terminated during message loop"
             )
@@ -632,6 +636,7 @@ class Agent:
             # Handling for general exceptions
             error_text = errors.error_text(exception)
             error_message = errors.format_error(exception)
+            self._cp_fail_run(reason=error_message)
 
             # Mask secrets in error messages
             PrintStyle(font_color="red", padding=True).print(error_message)
@@ -682,6 +687,67 @@ class Agent:
 
     def set_data(self, field: str, value):
         self.data[field] = value
+
+    def _cp_adapter(self):
+        adapter = self.get_data(Agent.DATA_NAME_CP_ADAPTER)
+        if adapter is not None:
+            return adapter
+        from python.integrations.control_plane_adapter import ControlPlaneAdapter
+
+        adapter = ControlPlaneAdapter(self)
+        self.set_data(Agent.DATA_NAME_CP_ADAPTER, adapter)
+        if adapter.config_error:
+            self.context.log.log(
+                type="warning",
+                content=f"{self.agent_name}: control-plane adapter disabled due to config error: {adapter.config_error}",
+            )
+        return adapter
+
+    def _cp_enabled(self) -> bool:
+        return bool(self._cp_adapter().enabled)
+
+    def _cp_ensure_run_started(self) -> str:
+        adapter = self._cp_adapter()
+        if not adapter.enabled:
+            return ""
+        try:
+            return adapter.ensure_run_started()
+        except Exception as exc:
+            self.context.log.log(
+                type="warning",
+                content=f"{self.agent_name}: control-plane run start failed: {exc}",
+            )
+            return ""
+
+    def _cp_emit_event(self, event_type: str, payload: dict[str, Any]) -> None:
+        adapter = self._cp_adapter()
+        if not adapter.enabled:
+            return
+        try:
+            adapter.emit_event(event_type, payload)
+        except Exception as exc:
+            self.context.log.log(
+                type="warning",
+                content=f"{self.agent_name}: control-plane event emit failed ({event_type}): {exc}",
+            )
+
+    def _cp_complete_run(self, reason: str) -> None:
+        adapter = self._cp_adapter()
+        if not adapter.enabled:
+            return
+        try:
+            adapter.complete_run(reason=reason)
+        except Exception:
+            pass
+
+    def _cp_fail_run(self, reason: str) -> None:
+        adapter = self._cp_adapter()
+        if not adapter.enabled:
+            return
+        try:
+            adapter.fail_run(reason=reason)
+        except Exception:
+            pass
 
     def hist_add_message(
         self, ai: bool, content: history.MessageContent, tokens: int = 0
@@ -800,7 +866,10 @@ class Agent:
         background: bool = False,
     ):
         model = self.get_utility_model()
-        from python.helpers.governance_gate import emit_governance_runtime_event
+        cp_enabled = self._cp_enabled()
+        emit_governance_runtime_event = None
+        if not cp_enabled:
+            from python.helpers.governance_gate import emit_governance_runtime_event
 
         # call extensions
         call_data = {
@@ -814,47 +883,104 @@ class Agent:
         rendered_prompt_hash = hashlib.sha256(
             f"{call_data.get('system', '')}\n\n{call_data.get('message', '')}".encode("utf-8")
         ).hexdigest()
-        emit_governance_runtime_event(
-            self,
-            {
-                "type": EVENT_PROMPT_FINAL_RENDERED,
-                "model_role": "utility",
-                "prompt_hash": rendered_prompt_hash,
-                "source": "agent.call_utility_model",
-            },
-        )
-        emit_governance_runtime_event(
-            self,
-            {
-                "type": EVENT_LLM_REQUEST_SENT,
-                "model_role": "utility",
-                "message_length": len(str(call_data.get("message", "") or "")),
-                "source": "agent.call_utility_model",
-            },
-        )
+        if emit_governance_runtime_event:
+            emit_governance_runtime_event(
+                self,
+                {
+                    "type": EVENT_PROMPT_FINAL_RENDERED,
+                    "model_role": "utility",
+                    "prompt_hash": rendered_prompt_hash,
+                    "source": "agent.call_utility_model",
+                },
+            )
+            emit_governance_runtime_event(
+                self,
+                {
+                    "type": EVENT_LLM_REQUEST_SENT,
+                    "model_role": "utility",
+                    "message_length": len(str(call_data.get("message", "") or "")),
+                    "source": "agent.call_utility_model",
+                },
+            )
+        else:
+            self._cp_ensure_run_started()
+            self._cp_emit_event(
+                "llm.call.started",
+                {
+                    "model_role": "utility",
+                    "prompt_hash": rendered_prompt_hash,
+                    "message_length": len(str(call_data.get("message", "") or "")),
+                },
+            )
+            adapter = self._cp_adapter()
+            handled, routed_output, decision = adapter.route_llm_call(
+                model=str(getattr(model, "model_name", "utility") or "utility"),
+                prompt=f"{call_data.get('system', '')}\n\n{call_data.get('message', '')}",
+                risk="low",
+                metadata={"source": "agent.call_utility_model"},
+            )
+            if handled and decision in {"deny", "require_approval"}:
+                self._cp_emit_event(
+                    "llm.call.completed",
+                    {"model_role": "utility", "decision": decision, "blocked": True},
+                )
+                return f"LLM call blocked by control plane (decision={decision})."
+            if handled and routed_output:
+                self._cp_emit_event(
+                    "llm.call.completed",
+                    {
+                        "model_role": "utility",
+                        "decision": decision or "allow",
+                        "response_length": len(str(routed_output)),
+                        "routed_via_gateway": True,
+                    },
+                )
+                return routed_output
 
         # propagate stream to callback if set
         async def stream_callback(chunk: str, total: str):
             if call_data["callback"]:
                 await call_data["callback"](chunk)
 
-        response, _reasoning = await call_data["model"].unified_call(
-            system_message=call_data["system"],
-            user_message=call_data["message"],
-            response_callback=stream_callback if call_data["callback"] else None,
-            rate_limiter_callback=(
-                self.rate_limiter_callback if not call_data["background"] else None
-            ),
-        )
-        emit_governance_runtime_event(
-            self,
-            {
-                "type": EVENT_LLM_RESPONSE_RECEIVED,
-                "model_role": "utility",
-                "response_length": len(str(response or "")),
-                "source": "agent.call_utility_model",
-            },
-        )
+        try:
+            response, _reasoning = await call_data["model"].unified_call(
+                system_message=call_data["system"],
+                user_message=call_data["message"],
+                response_callback=stream_callback if call_data["callback"] else None,
+                rate_limiter_callback=(
+                    self.rate_limiter_callback if not call_data["background"] else None
+                ),
+            )
+        except Exception as exc:
+            if cp_enabled:
+                self._cp_emit_event(
+                    "llm.call.failed",
+                    {
+                        "model_role": "utility",
+                        "error": str(exc),
+                    },
+                )
+            raise
+        if emit_governance_runtime_event:
+            emit_governance_runtime_event(
+                self,
+                {
+                    "type": EVENT_LLM_RESPONSE_RECEIVED,
+                    "model_role": "utility",
+                    "response_length": len(str(response or "")),
+                    "source": "agent.call_utility_model",
+                },
+            )
+        else:
+            self._cp_emit_event(
+                "llm.call.completed",
+                {
+                    "model_role": "utility",
+                    "decision": "allow",
+                    "response_length": len(str(response or "")),
+                    "routed_via_gateway": False,
+                },
+            )
 
         return response
 
@@ -866,50 +992,111 @@ class Agent:
         background: bool = False,
     ):
         response = ""
-        from python.helpers.governance_gate import emit_governance_runtime_event
+        cp_enabled = self._cp_enabled()
+        emit_governance_runtime_event = None
+        if not cp_enabled:
+            from python.helpers.governance_gate import emit_governance_runtime_event
 
         # model class
         model = self.get_chat_model()
         rendered_prompt = "\n\n".join(str(getattr(m, "content", "") or "") for m in messages)
         rendered_prompt_hash = hashlib.sha256(rendered_prompt.encode("utf-8")).hexdigest()
-        emit_governance_runtime_event(
-            self,
-            {
-                "type": EVENT_PROMPT_FINAL_RENDERED,
-                "model_role": "chat",
-                "prompt_hash": rendered_prompt_hash,
-                "messages_count": len(messages),
-                "source": "agent.call_chat_model",
-            },
-        )
-        emit_governance_runtime_event(
-            self,
-            {
-                "type": EVENT_LLM_REQUEST_SENT,
-                "model_role": "chat",
-                "messages_count": len(messages),
-                "source": "agent.call_chat_model",
-            },
-        )
+        if emit_governance_runtime_event:
+            emit_governance_runtime_event(
+                self,
+                {
+                    "type": EVENT_PROMPT_FINAL_RENDERED,
+                    "model_role": "chat",
+                    "prompt_hash": rendered_prompt_hash,
+                    "messages_count": len(messages),
+                    "source": "agent.call_chat_model",
+                },
+            )
+            emit_governance_runtime_event(
+                self,
+                {
+                    "type": EVENT_LLM_REQUEST_SENT,
+                    "model_role": "chat",
+                    "messages_count": len(messages),
+                    "source": "agent.call_chat_model",
+                },
+            )
+        else:
+            self._cp_ensure_run_started()
+            self._cp_emit_event(
+                "llm.call.started",
+                {
+                    "model_role": "chat",
+                    "prompt_hash": rendered_prompt_hash,
+                    "messages_count": len(messages),
+                },
+            )
+            adapter = self._cp_adapter()
+            handled, routed_output, decision = adapter.route_llm_call(
+                model=str(getattr(model, "model_name", "chat") or "chat"),
+                prompt=rendered_prompt,
+                risk="low",
+                metadata={"source": "agent.call_chat_model", "messages_count": len(messages)},
+            )
+            if handled and decision in {"deny", "require_approval"}:
+                blocked_response = f"LLM call blocked by control plane (decision={decision})."
+                self._cp_emit_event(
+                    "llm.call.completed",
+                    {"model_role": "chat", "decision": decision, "blocked": True},
+                )
+                return blocked_response, ""
+            if handled and routed_output:
+                self._cp_emit_event(
+                    "llm.call.completed",
+                    {
+                        "model_role": "chat",
+                        "decision": decision or "allow",
+                        "response_length": len(str(routed_output)),
+                        "routed_via_gateway": True,
+                    },
+                )
+                return routed_output, ""
 
         # call model
-        response, reasoning = await model.unified_call(
-            messages=messages,
-            reasoning_callback=reasoning_callback,
-            response_callback=response_callback,
-            rate_limiter_callback=(
-                self.rate_limiter_callback if not background else None
-            ),
-        )
-        emit_governance_runtime_event(
-            self,
-            {
-                "type": EVENT_LLM_RESPONSE_RECEIVED,
-                "model_role": "chat",
-                "response_length": len(str(response or "")),
-                "source": "agent.call_chat_model",
-            },
-        )
+        try:
+            response, reasoning = await model.unified_call(
+                messages=messages,
+                reasoning_callback=reasoning_callback,
+                response_callback=response_callback,
+                rate_limiter_callback=(
+                    self.rate_limiter_callback if not background else None
+                ),
+            )
+        except Exception as exc:
+            if cp_enabled:
+                self._cp_emit_event(
+                    "llm.call.failed",
+                    {
+                        "model_role": "chat",
+                        "error": str(exc),
+                    },
+                )
+            raise
+        if emit_governance_runtime_event:
+            emit_governance_runtime_event(
+                self,
+                {
+                    "type": EVENT_LLM_RESPONSE_RECEIVED,
+                    "model_role": "chat",
+                    "response_length": len(str(response or "")),
+                    "source": "agent.call_chat_model",
+                },
+            )
+        else:
+            self._cp_emit_event(
+                "llm.call.completed",
+                {
+                    "model_role": "chat",
+                    "decision": "allow",
+                    "response_length": len(str(response or "")),
+                    "routed_via_gateway": False,
+                },
+            )
 
         return response, reasoning
 
@@ -950,7 +1137,9 @@ class Agent:
         tool_request = extract_tools.json_parse_dirty(msg)
 
         if tool_request is not None:
-            from python.helpers.governance_gate import emit_governance_runtime_event
+            emit_governance_runtime_event = None
+            if not self._cp_enabled():
+                from python.helpers.governance_gate import emit_governance_runtime_event
 
             # valid structured output resets misformat streak
             previous_streak = int(self.get_data(Agent.DATA_NAME_MISFORMAT_STREAK) or 0)
@@ -967,16 +1156,17 @@ class Agent:
             tool_args = tool_request.get("tool_args", tool_request.get("args", {}))
             if not isinstance(tool_args, dict):
                 tool_args = {}
-            emit_governance_runtime_event(
-                self,
-                {
-                    "type": EVENT_LLM_RESPONSE_PARSED,
-                    "tool_name": str(raw_tool_name or ""),
-                    "parsed": True,
-                    "arg_keys": sorted(str(k) for k in tool_args.keys()),
-                    "source": "agent.process_tools",
-                },
-            )
+            if emit_governance_runtime_event:
+                emit_governance_runtime_event(
+                    self,
+                    {
+                        "type": EVENT_LLM_RESPONSE_PARSED,
+                        "tool_name": str(raw_tool_name or ""),
+                        "parsed": True,
+                        "arg_keys": sorted(str(k) for k in tool_args.keys()),
+                        "source": "agent.process_tools",
+                    },
+                )
 
             tool_name = raw_tool_name  # Initialize tool_name with raw_tool_name
             tool_method = None  # Initialize tool_method
@@ -1020,31 +1210,137 @@ class Agent:
                 try:
                     await self.handle_intervention()
 
-                    # === GOVERNANCE_MODE BEGIN ===
-                    # Governance gate chokepoint (covers local + MCP tools)
-                    from python.helpers.governance_gate import evaluate_tool_gate
-
+                    cp_enabled = self._cp_enabled()
                     gate_args = dict(tool_args or {})
                     if tool_method and "method" not in gate_args:
                         gate_args["method"] = tool_method
-                    gate = evaluate_tool_gate(self, tool_name, gate_args)
-                    decision = str(gate.get("decision", "allow"))
-                    if decision == "require_approval":
-                        # Pause-safe path: gate created approval + paused context, do not execute tool.
-                        return None
+
+                    decision = "allow"
+                    approval_id = ""
+                    tool_call_hash = ""
+                    risk = "unknown"
+                    approved_via_hold = False
+
+                    if cp_enabled:
+                        adapter = self._cp_adapter()
+                        run_id = self._cp_ensure_run_started()
+                        risk = adapter.infer_tool_risk(tool_name, gate_args)
+                        tool_call_hash = adapter.compute_tool_call_hash(tool_name, gate_args)
+                        self._cp_emit_event(
+                            "tool.decision.requested",
+                            {
+                                "run_id": run_id,
+                                "tool_name": tool_name,
+                                "risk": risk,
+                                "tool_call_hash": tool_call_hash,
+                            },
+                        )
+                        result = adapter.decide_tool(
+                            tool_name=tool_name,
+                            tool_args=gate_args,
+                            action=f"tool:{tool_name}",
+                            risk=risk,
+                        )
+                        decision = str(result.decision or "deny")
+                        approval_id = str(result.approval_id or "")
+                        self._cp_emit_event(
+                            "policy.decision",
+                            {
+                                "tool_name": tool_name,
+                                "risk": risk,
+                                "decision": decision,
+                                "approval_id": approval_id,
+                            },
+                        )
+                        if decision == "require_approval":
+                            self.context.paused = True
+                            self._cp_emit_event(
+                                "approval.waiting",
+                                {
+                                    "approval_id": approval_id,
+                                    "tool_name": tool_name,
+                                    "tool_call_hash": tool_call_hash,
+                                },
+                            )
+                            approval_status = adapter.wait_for_approval(approval_id)
+                            self.context.paused = False
+                            self._cp_emit_event(
+                                "approval.resolved",
+                                {
+                                    "approval_id": approval_id,
+                                    "tool_name": tool_name,
+                                    "status": approval_status,
+                                },
+                            )
+                            if approval_status == "approved":
+                                decision = "allow"
+                                approved_via_hold = True
+                            else:
+                                decision = "deny"
+                    else:
+                        # === GOVERNANCE_MODE BEGIN ===
+                        # Governance gate chokepoint (covers local + MCP tools)
+                        from python.helpers.governance_gate import evaluate_tool_gate
+
+                        gate = evaluate_tool_gate(self, tool_name, gate_args)
+                        decision = str(gate.get("decision", "allow"))
+                        if decision == "require_approval":
+                            # Pause-safe path: gate created approval + paused context, do not execute tool.
+                            return None
+                        if decision == "deny":
+                            denied_msg = (
+                                "Governance denied tool execution. "
+                                f"tool={tool_name} risk={gate.get('risk', 'unknown')}"
+                            )
+                            self.hist_add_warning(denied_msg)
+                            PrintStyle(font_color="red", padding=True).print(denied_msg)
+                            self.context.log.log(type="warning", content=f"{self.agent_name}: {denied_msg}")
+                            return None
+
+                        tool_args["__governance_gate_evaluated"] = gate.get("token", "")
+                        tool_args["__governance_tool_call_hash"] = gate.get("tool_call_hash", "")
+                        # === GOVERNANCE_MODE END ===
+
                     if decision == "deny":
                         denied_msg = (
+                            "Control-plane denied tool execution. "
+                            f"tool={tool_name} risk={risk}"
+                        ) if cp_enabled else (
                             "Governance denied tool execution. "
-                            f"tool={tool_name} risk={gate.get('risk', 'unknown')}"
+                            f"tool={tool_name}"
                         )
                         self.hist_add_warning(denied_msg)
                         PrintStyle(font_color="red", padding=True).print(denied_msg)
                         self.context.log.log(type="warning", content=f"{self.agent_name}: {denied_msg}")
+                        if cp_enabled:
+                            self._cp_emit_event(
+                                "tool.execution.denied",
+                                {
+                                    "tool_name": tool_name,
+                                    "risk": risk,
+                                    "approval_id": approval_id,
+                                    "tool_call_hash": tool_call_hash,
+                                },
+                            )
                         return None
 
-                    tool_args["__governance_gate_evaluated"] = gate.get("token", "")
-                    tool_args["__governance_tool_call_hash"] = gate.get("tool_call_hash", "")
-                    # === GOVERNANCE_MODE END ===
+                    if cp_enabled and tool_call_hash and not approved_via_hold:
+                        adapter = self._cp_adapter()
+                        if not adapter.mark_tool_executed_once(tool_call_hash):
+                            duplicate_msg = (
+                                f"Skipping duplicate approved tool execution for {tool_name} "
+                                f"(tool_call_hash={tool_call_hash[:12]}...)."
+                            )
+                            self.context.log.log(type="warning", content=f"{self.agent_name}: {duplicate_msg}")
+                            self._cp_emit_event(
+                                "tool.execution.duplicate_suppressed",
+                                {
+                                    "tool_name": tool_name,
+                                    "tool_call_hash": tool_call_hash,
+                                    "reason": "tool_call_hash_seen",
+                                },
+                            )
+                            return None
 
                     # Call tool hooks for compatibility
                     await tool.before_execution(**tool_args)
@@ -1057,8 +1353,53 @@ class Agent:
                         tool_name=tool_name,
                     )
 
+                    if cp_enabled and approved_via_hold:
+                        adapter = self._cp_adapter()
+                        if not adapter.mark_approval_consumed_once(approval_id):
+                            duplicate_msg = (
+                                f"Skipping duplicate approved transition for {tool_name} "
+                                f"(approval_id={approval_id})."
+                            )
+                            self.context.log.log(type="warning", content=f"{self.agent_name}: {duplicate_msg}")
+                            self._cp_emit_event(
+                                "tool.execution.duplicate_suppressed",
+                                {
+                                    "tool_name": tool_name,
+                                    "approval_id": approval_id,
+                                    "tool_call_hash": tool_call_hash,
+                                    "reason": "approval_already_consumed",
+                                },
+                            )
+                            return None
+                        if not adapter.mark_tool_executed_once(tool_call_hash):
+                            duplicate_msg = (
+                                f"Skipping duplicate approved tool execution for {tool_name} "
+                                f"(tool_call_hash={tool_call_hash[:12]}...)."
+                            )
+                            self.context.log.log(type="warning", content=f"{self.agent_name}: {duplicate_msg}")
+                            self._cp_emit_event(
+                                "tool.execution.duplicate_suppressed",
+                                {
+                                    "tool_name": tool_name,
+                                    "approval_id": approval_id,
+                                    "tool_call_hash": tool_call_hash,
+                                    "reason": "tool_call_hash_seen_after_approval",
+                                },
+                            )
+                            return None
+
                     response = await tool.execute(**tool_args)
                     await self.handle_intervention()
+                    if cp_enabled:
+                        self._cp_emit_event(
+                            "tool.executed",
+                            {
+                                "tool_name": tool_name,
+                                "approval_id": approval_id,
+                                "tool_call_hash": tool_call_hash,
+                                "risk": risk,
+                            },
+                        )
 
                     # Allow extensions to postprocess tool response
                     await self.call_extensions(
@@ -1071,29 +1412,71 @@ class Agent:
                     if response.break_loop:
                         return response.message
                 finally:
+                    if self._cp_enabled():
+                        self.context.paused = False
                     self.loop_data.current_tool = None
             else:
-                # === GOVERNANCE_MODE BEGIN ===
-                # Unknown tool behavior is governance-mode dependent.
-                from python.helpers.governance_gate import evaluate_tool_gate
-
+                cp_enabled = self._cp_enabled()
                 gate_args = dict(tool_args or {})
                 if tool_method and "method" not in gate_args:
                     gate_args["method"] = tool_method
-                gate = evaluate_tool_gate(self, tool_name, gate_args)
-                decision = str(gate.get("decision", "allow"))
-                if decision == "require_approval":
-                    return None
-                if decision == "deny":
-                    denied_msg = (
-                        "Governance denied unknown tool execution. "
-                        f"tool={raw_tool_name} risk={gate.get('risk', 'unknown')}"
+
+                if cp_enabled:
+                    adapter = self._cp_adapter()
+                    risk = adapter.infer_tool_risk(tool_name, gate_args)
+                    tool_call_hash = adapter.compute_tool_call_hash(tool_name, gate_args)
+                    self._cp_emit_event(
+                        "tool.decision.requested",
+                        {
+                            "tool_name": tool_name,
+                            "risk": risk,
+                            "tool_call_hash": tool_call_hash,
+                            "unknown_tool": True,
+                        },
                     )
-                    self.hist_add_warning(denied_msg)
-                    PrintStyle(font_color="red", padding=True).print(denied_msg)
-                    self.context.log.log(type="warning", content=f"{self.agent_name}: {denied_msg}")
-                    return None
-                # === GOVERNANCE_MODE END ===
+                    result = adapter.decide_tool(
+                        tool_name=tool_name,
+                        tool_args=gate_args,
+                        action=f"tool:{tool_name}:unknown",
+                        risk=risk,
+                    )
+                    decision = str(result.decision or "deny")
+                    if decision != "allow":
+                        denied_msg = (
+                            "Control-plane denied unknown tool execution. "
+                            f"tool={raw_tool_name} risk={risk}"
+                        )
+                        self.hist_add_warning(denied_msg)
+                        PrintStyle(font_color="red", padding=True).print(denied_msg)
+                        self.context.log.log(type="warning", content=f"{self.agent_name}: {denied_msg}")
+                        self._cp_emit_event(
+                            "tool.execution.denied",
+                            {
+                                "tool_name": tool_name,
+                                "risk": risk,
+                                "unknown_tool": True,
+                            },
+                        )
+                        return None
+                else:
+                    # === GOVERNANCE_MODE BEGIN ===
+                    # Unknown tool behavior is governance-mode dependent.
+                    from python.helpers.governance_gate import evaluate_tool_gate
+
+                    gate = evaluate_tool_gate(self, tool_name, gate_args)
+                    decision = str(gate.get("decision", "allow"))
+                    if decision == "require_approval":
+                        return None
+                    if decision == "deny":
+                        denied_msg = (
+                            "Governance denied unknown tool execution. "
+                            f"tool={raw_tool_name} risk={gate.get('risk', 'unknown')}"
+                        )
+                        self.hist_add_warning(denied_msg)
+                        PrintStyle(font_color="red", padding=True).print(denied_msg)
+                        self.context.log.log(type="warning", content=f"{self.agent_name}: {denied_msg}")
+                        return None
+                    # === GOVERNANCE_MODE END ===
 
                 error_detail = (
                     f"Tool '{raw_tool_name}' not found or could not be initialized."

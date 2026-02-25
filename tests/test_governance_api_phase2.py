@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 
 from python.api.governance_events import GovernanceEvents
@@ -11,14 +12,37 @@ from python.api.training_candidates_update import TrainingCandidatesUpdate
 
 
 class _DummyContext:
-    def __init__(self, ctxid: str) -> None:
+    def __init__(self, ctxid: str, agent0=None) -> None:
         self.id = ctxid
+        self.agent0 = agent0
 
 
 class _DummyRequest:
     def __init__(self, method: str = "POST", args: dict | None = None) -> None:
         self.method = method
         self.args = args or {}
+
+
+class _DummyCpAdapter:
+    def __init__(self, *, enabled: bool, execution_profile: str = "standard", tags: list[str] | None = None):
+        self.enabled = enabled
+        self.config = type("Cfg", (), {"execution_profile": execution_profile})()
+        self._tags = tags or ["agentzero", "adapter:control-plane"]
+
+    def run_tags(self) -> list[str]:
+        return list(self._tags)
+
+
+class _DummyCpAgent:
+    def __init__(self, *, adapter: _DummyCpAdapter, cp_run_id: str):
+        self._adapter = adapter
+        self._cp_run_id = cp_run_id
+
+    def _cp_adapter(self):
+        return self._adapter
+
+    def _cp_ensure_run_started(self) -> str:
+        return self._cp_run_id
 
 
 def test_governance_run_start_disabled_returns_409(monkeypatch):
@@ -56,6 +80,124 @@ def test_governance_run_start_success(monkeypatch):
     assert out["ok"] is True
     assert out["run_id"] == "r1"
     assert out["project_name"] == "p1"
+    assert out["cp_run_id"] is None
+    assert out["adapter_enabled"] is False
+
+
+def test_governance_run_start_adapter_enabled_includes_cp_run_id(monkeypatch):
+    import python.api.governance_run_start as mod
+
+    handler = GovernanceRunStart(None, threading.Lock())
+    cp_adapter = _DummyCpAdapter(
+        enabled=True,
+        execution_profile="standard",
+        tags=["agentzero", "adapter:control-plane", "canary:abc123"],
+    )
+    dummy = _DummyContext("ctx_1", agent0=_DummyCpAgent(adapter=cp_adapter, cp_run_id="cp-run-1"))
+
+    monkeypatch.setattr(mod, "is_temporal_enabled", lambda: True)
+    monkeypatch.setattr(handler, "use_context", lambda _ctxid: dummy)
+    monkeypatch.setattr(mod.projects, "get_context_project_name", lambda _ctx: "p1")
+
+    async def _start_governed_run(**_kwargs):
+        return {"run_id": "r1", "status": "queued", "persisted": True}
+
+    monkeypatch.setattr(mod, "start_governed_run", _start_governed_run)
+
+    out = __import__("asyncio").run(handler.process({"context_id": "ctx_1"}, None))
+
+    assert out["ok"] is True
+    assert out["agentzero_run_id"] == "r1"
+    assert out["governance_run_id"] == "r1"
+    assert out["cp_run_id"] == "cp-run-1"
+    assert out["adapter_enabled"] is True
+    assert out["trigger_id"]
+    assert out["started_at"]
+    assert out["correlation"]["tag"] == "canary:abc123"
+    assert out["correlation"]["tags_applied"] == ["agentzero", "adapter:control-plane", "canary:abc123"]
+    assert out["correlation"]["context_id"] == "ctx_1"
+    assert out["correlation"]["source_framework"] == "agentzero"
+    assert out["correlation"]["source_adapter"] == "control_plane_adapter"
+
+
+def test_governance_run_start_adapter_enabled_missing_cp_run_id_fails(monkeypatch):
+    import python.api.governance_run_start as mod
+
+    handler = GovernanceRunStart(None, threading.Lock())
+    cp_adapter = _DummyCpAdapter(enabled=True, execution_profile="standard")
+    dummy = _DummyContext("ctx_1", agent0=_DummyCpAgent(adapter=cp_adapter, cp_run_id=""))
+
+    monkeypatch.setattr(mod, "is_temporal_enabled", lambda: True)
+    monkeypatch.setattr(handler, "use_context", lambda _ctxid: dummy)
+    monkeypatch.setattr(mod.projects, "get_context_project_name", lambda _ctx: "p1")
+
+    async def _start_governed_run(**_kwargs):
+        return {"run_id": "r1", "status": "queued", "persisted": True}
+
+    monkeypatch.setattr(mod, "start_governed_run", _start_governed_run)
+
+    resp = __import__("asyncio").run(handler.process({"context_id": "ctx_1"}, None))
+    assert getattr(resp, "status_code", None) == 502
+    body = json.loads(resp.get_data(as_text=True))
+    assert body["ok"] is False
+    assert "cp_run_id" in str(body["error"])
+    assert body["cp_run_id_required"] is True
+
+
+def test_governance_run_start_cp_required_false_rejected_in_regulated_mode(monkeypatch):
+    import python.api.governance_run_start as mod
+
+    handler = GovernanceRunStart(None, threading.Lock())
+    dummy = _DummyContext("ctx_1")
+
+    monkeypatch.setattr(mod, "is_temporal_enabled", lambda: True)
+    monkeypatch.setattr(handler, "use_context", lambda _ctxid: dummy)
+    monkeypatch.setattr(mod.projects, "get_context_project_name", lambda _ctx: "p1")
+    monkeypatch.setenv("CP_EXECUTION_PROFILE", "regulated")
+    monkeypatch.delenv("CP_ALLOW_TRIGGER_CP_BYPASS", raising=False)
+
+    async def _start_governed_run(**_kwargs):
+        return {"run_id": "r1", "status": "queued", "persisted": True}
+
+    monkeypatch.setattr(mod, "start_governed_run", _start_governed_run)
+
+    resp = __import__("asyncio").run(handler.process({"context_id": "ctx_1", "cp_required": False}, None))
+    assert getattr(resp, "status_code", None) == 400
+    body = json.loads(resp.get_data(as_text=True))
+    assert body["ok"] is False
+    assert "not permitted" in str(body["error"])
+    assert body["cp_required_override_allowed"] is False
+    assert body["cp_run_id_required"] is True
+
+
+def test_governance_run_start_cp_required_false_allowed_only_with_dev_flag(monkeypatch):
+    import python.api.governance_run_start as mod
+
+    handler = GovernanceRunStart(None, threading.Lock())
+
+    class _BrokenCpAgent:
+        def _cp_adapter(self):
+            raise RuntimeError("adapter boom")
+
+    dummy = _DummyContext("ctx_1", agent0=_BrokenCpAgent())
+
+    monkeypatch.setattr(mod, "is_temporal_enabled", lambda: True)
+    monkeypatch.setattr(handler, "use_context", lambda _ctxid: dummy)
+    monkeypatch.setattr(mod.projects, "get_context_project_name", lambda _ctx: "p1")
+    monkeypatch.setenv("CP_EXECUTION_PROFILE", "standard")
+    monkeypatch.delenv("CP_CANARY_CORRELATION_TAG", raising=False)
+    monkeypatch.delenv("CP_ADAPTER_STRICT_MODE", raising=False)
+    monkeypatch.setenv("CP_ALLOW_TRIGGER_CP_BYPASS", "true")
+
+    async def _start_governed_run(**_kwargs):
+        return {"run_id": "r1", "status": "queued", "persisted": True}
+
+    monkeypatch.setattr(mod, "start_governed_run", _start_governed_run)
+
+    out = __import__("asyncio").run(handler.process({"context_id": "ctx_1", "cp_required": False}, None))
+    assert out["ok"] is True
+    assert out["cp_run_id"] is None
+    assert any("Compatibility mode" in w for w in out.get("warnings", []))
 
 
 def test_governance_run_signal_validation_and_success(monkeypatch):
